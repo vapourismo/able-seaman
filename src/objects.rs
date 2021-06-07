@@ -1,7 +1,4 @@
-use crate::errors::GeneralError;
-use crate::release::ReleaseInfo;
 use kube::core::DynamicObject;
-use serde::de::Deserialize;
 use std::collections::BTreeMap;
 
 fn update_labels(labels: &mut BTreeMap<String, String>, release: String) {
@@ -30,32 +27,4 @@ pub fn attach_annotations(object: &mut DynamicObject) {
         update_annotations(&mut annotations);
         object.metadata.annotations = Some(annotations);
     }
-}
-
-pub type Objects = BTreeMap<String, DynamicObject>;
-
-pub fn ingest_objects<SomeRead>(
-    release: &ReleaseInfo,
-    input: SomeRead,
-) -> Result<Objects, GeneralError>
-where
-    SomeRead: std::io::Read,
-{
-    let mut objects = BTreeMap::new();
-
-    for document in serde_yaml::Deserializer::from_reader(input) {
-        let mut object = DynamicObject::deserialize(document)?;
-
-        if let Some(name) = object.metadata.name.clone() {
-            release.configure_object(&mut object);
-
-            if let Some(_old_object) = objects.insert(name.clone(), object) {
-                return Err(GeneralError::DuplicateObject(name));
-            }
-        } else {
-            return Err(GeneralError::ObjectWithoutName(object));
-        }
-    }
-
-    Ok(objects)
 }

@@ -3,10 +3,8 @@ mod objects;
 mod release;
 
 use crate::errors::GeneralError;
-use crate::objects::ingest_objects;
+use crate::release::Release;
 use crate::release::ReleaseInfo;
-use kube::core::DynamicObject;
-use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Read;
@@ -24,14 +22,10 @@ fn actual_main() -> Result<(), GeneralError> {
         name: "example_release".to_string(),
     };
 
-    let mut objects: BTreeMap<String, DynamicObject> = BTreeMap::new();
+    let mut release = Release::new(release);
 
-    objects.append(&mut ingest_objects(&release, file_reader("pod.yaml")?)?);
-
-    for (k, v) in objects {
-        println!("> {}", k);
-        println!("{}", serde_json::to_string_pretty(&v)?);
-    }
+    let input = file_reader("pod.yaml")?;
+    release.ingest_objects(input)?;
 
     Ok(())
 }
