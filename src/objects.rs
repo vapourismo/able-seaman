@@ -1,4 +1,5 @@
-use crate::GeneralError;
+use crate::errors::GeneralError;
+use crate::release::ReleaseInfo;
 use kube::core::DynamicObject;
 use serde::de::Deserialize;
 use std::collections::BTreeMap;
@@ -31,15 +32,6 @@ pub fn attach_annotations(object: &mut DynamicObject) {
     }
 }
 
-pub struct ReleaseInfo {
-    pub name: String,
-}
-
-pub fn configure_object(object: &mut DynamicObject, info: &ReleaseInfo) {
-    attach_labels(object, info.name.clone());
-    attach_annotations(object);
-}
-
 pub type Objects = BTreeMap<String, DynamicObject>;
 
 pub fn ingest_objects<SomeRead>(
@@ -55,7 +47,7 @@ where
         let mut object = DynamicObject::deserialize(document)?;
 
         if let Some(name) = object.metadata.name.clone() {
-            configure_object(&mut object, release);
+            release.configure_object(&mut object);
 
             if let Some(_old_object) = objects.insert(name.clone(), object) {
                 return Err(GeneralError::DuplicateObject(name));

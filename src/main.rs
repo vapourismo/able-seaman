@@ -1,9 +1,10 @@
 mod errors;
 mod objects;
+mod release;
 
 use crate::errors::GeneralError;
 use crate::objects::ingest_objects;
-use crate::objects::ReleaseInfo;
+use crate::release::ReleaseInfo;
 use kube::core::DynamicObject;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
