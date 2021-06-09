@@ -1,6 +1,7 @@
 use crate::errors::GeneralError;
 use crate::objects::attach_annotations;
 use crate::objects::attach_labels;
+use kube::api::ListParams;
 use kube::core::DynamicObject;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -16,6 +17,12 @@ impl ReleaseInfo {
     pub fn configure_object(&self, object: &mut DynamicObject) {
         attach_labels(object, self.name.clone());
         attach_annotations(object);
+    }
+
+    pub fn to_list_params(&self) -> ListParams {
+        let label = format!("able-seaman/release={}", self.name);
+
+        ListParams::default().labels(&label)
     }
 }
 

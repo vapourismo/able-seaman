@@ -1,5 +1,3 @@
-use crate::ReleaseInfo;
-use kube::api::ListParams;
 use kube::core::DynamicObject;
 use std::collections::BTreeMap;
 
@@ -37,10 +35,4 @@ pub fn get_release(object: &DynamicObject) -> Option<String> {
             .get("able-seaman/release")
             .map(|release| release.clone())
     })
-}
-
-pub fn release_list_params(release: &ReleaseInfo) -> ListParams {
-    let label = format!("able-seaman/release={}", release.name);
-
-    ListParams::default().labels(&label)
 }
