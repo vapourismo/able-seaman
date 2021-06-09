@@ -1,3 +1,5 @@
+use crate::ReleaseInfo;
+use kube::api::ListParams;
 use kube::core::DynamicObject;
 use std::collections::BTreeMap;
 
@@ -27,4 +29,18 @@ pub fn attach_annotations(object: &mut DynamicObject) {
         update_annotations(&mut annotations);
         object.metadata.annotations = Some(annotations);
     }
+}
+
+pub fn get_release(object: &DynamicObject) -> Option<String> {
+    object.metadata.labels.as_ref().and_then(|labels| {
+        labels
+            .get("able-seaman/release")
+            .map(|release| release.clone())
+    })
+}
+
+pub fn release_list_params(release: &ReleaseInfo) -> ListParams {
+    let label = format!("able-seaman/release={}", release.name);
+
+    ListParams::default().labels(&label)
 }

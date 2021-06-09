@@ -21,8 +21,8 @@ impl ReleaseInfo {
 
 #[derive(Clone, Debug)]
 pub struct Release {
-    info: ReleaseInfo,
-    objects: Objects,
+    pub info: ReleaseInfo,
+    pub objects: Objects,
 }
 
 impl Release {
