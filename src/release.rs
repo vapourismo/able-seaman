@@ -1,14 +1,40 @@
 use crate::errors::GeneralError;
 use crate::objects::attach_annotations;
 use crate::objects::attach_labels;
+use k8s_openapi::api::core::v1::ConfigMap;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
+use kube::Api;
+use kube::Client;
 use serde::Deserialize;
+use serde::Serialize;
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::hash::Hash;
 use std::io::Read;
+use std::path::Path;
+use std::path::PathBuf;
 
-#[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug)]
+fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), GeneralError> {
+    if path.is_dir() {
+        for entry in path.read_dir()? {
+            let dir = entry?.path();
+            list_contents_vec(paths, dir.as_path())?;
+        }
+    } else if path.exists() {
+        paths.push(path.to_path_buf());
+    }
+
+    Ok(())
+}
+
+fn list_contents(path: &Path) -> Result<Vec<PathBuf>, GeneralError> {
+    let mut paths = Vec::new();
+    list_contents_vec(&mut paths, path)?;
+    Ok(paths)
+}
+
+#[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct ReleaseInfo {
     pub name: String,
 }
@@ -26,7 +52,7 @@ impl ReleaseInfo {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
     pub info: ReleaseInfo,
     pub objects: Objects,
@@ -40,11 +66,44 @@ impl Release {
         }
     }
 
+    pub fn from_config_map(config_map: &ConfigMap) -> Result<Self, GeneralError> {
+        if let Some(data) = &config_map.data {
+            let release = serde_json::from_str(
+                data.get("release")
+                    .ok_or(GeneralError::BadReleaseConfigMap(config_map.clone()))?,
+            )?;
+
+            Ok(release)
+        } else {
+            Err(GeneralError::BadReleaseConfigMap(config_map.clone()))
+        }
+    }
+
+    pub fn as_config_map(&self) -> Result<ConfigMap, GeneralError> {
+        let mut data = BTreeMap::new();
+
+        data.insert("release".to_string(), serde_json::to_string(self)?);
+
+        let mut config_map = ConfigMap::default();
+        config_map.data = Some(data);
+
+        Ok(config_map)
+    }
+
     pub fn ingest_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), GeneralError>
     where
         SomeRead: Read,
     {
-        self.objects.append(&mut ingest_objects(&self.info, input)?);
+        self.objects.append(&mut ingest_objects(input)?);
+
+        Ok(())
+    }
+
+    pub fn ingest_objects_from_path(&mut self, input: &Path) -> Result<(), GeneralError> {
+        for file in list_contents(input)? {
+            let file = File::open(file.as_path())?;
+            self.ingest_objects(file)?;
+        }
 
         Ok(())
     }
@@ -70,21 +129,16 @@ impl Hash for Release {
 
 pub type Objects = BTreeMap<String, DynamicObject>;
 
-pub fn ingest_objects<SomeRead>(
-    release: &ReleaseInfo,
-    input: SomeRead,
-) -> Result<Objects, GeneralError>
+pub fn ingest_objects<SomeRead>(input: SomeRead) -> Result<Objects, GeneralError>
 where
     SomeRead: std::io::Read,
 {
     let mut objects = BTreeMap::new();
 
     for document in serde_yaml::Deserializer::from_reader(input) {
-        let mut object = DynamicObject::deserialize(document)?;
+        let object = DynamicObject::deserialize(document)?;
 
         if let Some(name) = object.metadata.name.clone() {
-            release.configure_object(&mut object);
-
             if let Some(_old_object) = objects.insert(name.clone(), object) {
                 return Err(GeneralError::DuplicateObject(name));
             }

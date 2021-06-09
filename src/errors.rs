@@ -1,3 +1,4 @@
+use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 
 #[derive(Debug)]
@@ -8,6 +9,7 @@ pub enum GeneralError {
     JSONError(serde_json::Error),
     ObjectWithoutName(DynamicObject),
     DuplicateObject(String),
+    BadReleaseConfigMap(ConfigMap),
 }
 
 impl From<std::io::Error> for GeneralError {
