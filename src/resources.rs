@@ -85,13 +85,63 @@ pub async fn get_api_resources(client: &Client) -> Result<Vec<ApiResource>, Gene
     Ok(all_resources)
 }
 
-pub async fn list_release_resources(
-    client: &Client,
-    api_resource: &ApiResource,
-    release_info: &ReleaseInfo,
-) -> Result<Vec<DynamicObject>, GeneralError> {
-    let api: Api<DynamicObject> = Api::all_with(client.clone(), api_resource);
-    let objects = api.list(&release_info.to_list_params()).await?;
+pub struct ApiKnowledge {
+    api_resources: Vec<ApiResource>,
+}
 
-    Ok(objects.items)
+impl ApiKnowledge {
+    pub async fn new(client: &Client) -> Result<Self, GeneralError> {
+        let mut api_resources = get_core_api_resources(&client).await?;
+        api_resources.append(&mut get_api_resources(&client).await?);
+
+        Ok(ApiKnowledge { api_resources })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ReleasedObject {
+    pub name: String,
+    pub object: DynamicObject,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReleasedApi {
+    pub api_resource: ApiResource,
+    pub objects: Vec<ReleasedObject>,
+}
+
+pub async fn list_release_resources(
+    client: Client,
+    knowledge: &ApiKnowledge,
+    release_info: &ReleaseInfo,
+) -> Result<(Client, Vec<ReleasedApi>), GeneralError> {
+    let mut all_apis = Vec::new();
+    let mut client = client;
+
+    for api_resource in &knowledge.api_resources {
+        let api: Api<DynamicObject> = Api::all_with(client, api_resource);
+
+        let objects = api.list(&release_info.to_list_params()).await?;
+        let mut released_objects = Vec::new();
+
+        for object in objects {
+            if let Some(name) = &object.metadata.name {
+                released_objects.push(ReleasedObject {
+                    name: name.clone(),
+                    object,
+                });
+            }
+        }
+
+        if released_objects.len() > 0 {
+            all_apis.push(ReleasedApi {
+                api_resource: api_resource.clone(),
+                objects: released_objects,
+            });
+        }
+
+        client = api.into_client();
+    }
+
+    Ok((client, all_apis))
 }
