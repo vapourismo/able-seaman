@@ -1,5 +1,6 @@
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum GeneralError {
@@ -10,6 +11,8 @@ pub enum GeneralError {
     ObjectWithoutName(DynamicObject),
     DuplicateObject(String),
     BadReleaseConfigMap(ConfigMap),
+    FileNotFound(Box<Path>),
+    ReleaseIsBusy,
 }
 
 impl From<std::io::Error> for GeneralError {

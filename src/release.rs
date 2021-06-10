@@ -23,6 +23,10 @@ fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), Genera
         }
     } else if path.exists() {
         paths.push(path.to_path_buf());
+    } else {
+        return Err(GeneralError::FileNotFound(
+            path.to_owned().into_boxed_path(),
+        ));
     }
 
     Ok(())
