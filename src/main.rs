@@ -1,8 +1,10 @@
+mod api;
 mod errors;
 mod objects;
 mod release;
 mod resources;
 
+use crate::api::TryToApiResource;
 use crate::errors::GeneralError;
 use crate::release::Objects;
 use crate::release::Release;
@@ -13,10 +15,7 @@ use kube::api::DeleteParams;
 use kube::api::Patch;
 use kube::api::PatchParams;
 use kube::api::PostParams;
-use kube::core::ApiResource;
 use kube::core::DynamicObject;
-use kube::core::GroupVersionKind;
-use kube::core::TypeMeta;
 use kube::error::ErrorResponse;
 use kube::Api;
 use kube::Client;
@@ -40,22 +39,11 @@ struct Options {
     command: Command,
 }
 
-fn object_to_api_resource(typ: &TypeMeta) -> ApiResource {
-    ApiResource::from_gvk(
-        &if let Some((group, version)) = typ.api_version.as_str().split_once('/') {
-            GroupVersionKind::gvk(group, version, typ.kind.as_str())
-        } else {
-            GroupVersionKind::gvk("", typ.api_version.as_str(), typ.kind.as_str())
-        },
-    )
-}
-
 async fn apply_all(client: Client, objects: &Objects) -> Result<(), GeneralError> {
     let mut client = client;
 
     for (name, object) in objects {
-        if let Some(ref typ) = object.types {
-            let api_resource = object_to_api_resource(typ);
+        if let Some(api_resource) = object.try_to_api_resource() {
             let object_api: Api<DynamicObject> =
                 Api::default_namespaced_with(client, &api_resource);
 
