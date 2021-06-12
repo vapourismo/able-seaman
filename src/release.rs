@@ -1,3 +1,6 @@
+pub mod manager;
+pub use manager::*;
+
 use crate::errors::GeneralError;
 use crate::k8s::apply_dynamic;
 use crate::k8s::create_dynamic;

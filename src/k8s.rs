@@ -19,6 +19,7 @@ pub const VERSION_LABEL: &'static str = "able-seaman/version";
 pub enum ObjectType {
     Lock,
     Release,
+    ReleaseState,
 }
 
 impl ToString for ObjectType {
@@ -26,6 +27,7 @@ impl ToString for ObjectType {
         match self {
             ObjectType::Lock => "lock",
             ObjectType::Release => "release",
+            ObjectType::ReleaseState => "release-state",
         }
         .to_string()
     }

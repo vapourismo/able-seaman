@@ -1,3 +1,4 @@
+use crate::release::ManagerError;
 use crate::release::ReleaseError;
 use kube::core::DynamicObject;
 use std::path::Path;
@@ -12,6 +13,7 @@ pub enum GeneralError {
     DuplicateObject(String),
     FileNotFound(Box<Path>),
     ReleaseError(ReleaseError),
+    ManagerError(ManagerError),
 }
 
 impl From<std::io::Error> for GeneralError {
@@ -41,5 +43,11 @@ impl From<kube::error::Error> for GeneralError {
 impl From<ReleaseError> for GeneralError {
     fn from(error: ReleaseError) -> GeneralError {
         GeneralError::ReleaseError(error)
+    }
+}
+
+impl From<ManagerError> for GeneralError {
+    fn from(error: ManagerError) -> GeneralError {
+        GeneralError::ManagerError(error)
     }
 }
