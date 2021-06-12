@@ -1,13 +1,48 @@
-use crate::k8s::tag_object;
-use crate::k8s::wait_for_deletion;
 use crate::k8s::ObjectType;
+use crate::k8s::TaggableObject;
+use crate::k8s::TYPE_LABEL;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use kube::api::DeleteParams;
+use kube::api::ListParams;
 use kube::api::PostParams;
+use kube::api::WatchEvent;
 use kube::Api;
 use kube::Resource;
+use kube::ResourceExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
+
+async fn wait_for_deletion<SomeResource>(
+    api: &Api<SomeResource>,
+    name: &String,
+) -> Result<(), kube::Error>
+where
+    SomeResource: Clone + DeserializeOwned + Debug + ResourceExt,
+{
+    let mut stream = api
+        .watch(
+            &ListParams::default()
+                .labels(format!("{}=lock", TYPE_LABEL).as_str())
+                .timeout(10),
+            "0",
+        )
+        .await?
+        .boxed();
+
+    while let Some(event) = stream.try_next().await? {
+        match event {
+            WatchEvent::Deleted(deletion) if &deletion.name() == name => {
+                return Ok(());
+            }
+
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
 
 pub struct Lock<'a, T>
 where
@@ -31,7 +66,7 @@ where
         mut lock_value: T,
     ) -> Result<Lock<'a, T>, kube::Error> {
         lock_value.meta_mut().name = Some(name.clone());
-        tag_object(&mut lock_value, ObjectType::Lock);
+        lock_value.tag(ObjectType::Lock);
 
         let _locked_value = loop {
             match api.create(&PostParams::default(), &lock_value).await {

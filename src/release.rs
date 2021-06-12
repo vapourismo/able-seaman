@@ -1,7 +1,7 @@
 use crate::errors::GeneralError;
-use crate::k8s::tag_object;
 use crate::k8s::Lock;
 use crate::k8s::ObjectType;
+use crate::k8s::TaggableObject;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 use kube::Api;
@@ -70,7 +70,7 @@ impl Release {
         let mut config_map = ConfigMap::default();
         config_map.data = Some(data);
         config_map.metadata.name = Some(self.info.name.clone());
-        tag_object(&mut config_map, ObjectType::Release);
+        config_map.tag(ObjectType::Release);
 
         Ok(config_map)
     }
