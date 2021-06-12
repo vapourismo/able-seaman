@@ -1,5 +1,6 @@
 mod errors;
 mod k8s;
+mod meta;
 mod objects;
 mod release;
 mod resources;
@@ -10,7 +11,6 @@ use crate::release::Objects;
 use crate::release::Release;
 use crate::release::ReleaseInfo;
 use clap::Clap;
-use core::time::Duration;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::api::Patch;
 use kube::api::PatchParams;

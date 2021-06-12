@@ -1,3 +1,4 @@
+use crate::meta::CRATE_VERSION;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use kube::api::DeleteParams;
@@ -56,6 +57,22 @@ impl TryToApiResource for DynamicObject {
     }
 }
 
+const TYPE_LABEL: &'static str = "able-seaman/type";
+const VERSION_LABEL: &'static str = "able-seaman/version";
+
+fn tag_object<SomeResource>(object: &mut SomeResource, object_type: String)
+where
+    SomeResource: ResourceExt,
+{
+    object
+        .labels_mut()
+        .insert(TYPE_LABEL.to_string(), object_type);
+
+    object
+        .annotations_mut()
+        .insert(VERSION_LABEL.to_string(), CRATE_VERSION.to_string());
+}
+
 async fn wait_for_deletion<SomeResource>(
     api: &Api<SomeResource>,
     name: &String,
@@ -66,7 +83,7 @@ where
     let mut stream = api
         .watch(
             &ListParams::default()
-                .labels("able-seaman/function=lock")
+                .labels(format!("{}=lock", TYPE_LABEL).as_str())
                 .timeout(10),
             "0",
         )
@@ -99,25 +116,19 @@ where
     T: Resource + Default + Clone + Debug + DeserializeOwned + Serialize,
 {
     pub async fn new(api: &'a Api<T>, name: String) -> Result<Lock<'a, T>, kube::Error> {
-        let mut lock_config = <T as Default>::default();
-        lock_config.meta_mut().name = Some(name.clone());
-
-        Lock::new_with(api, name, lock_config).await
+        Lock::new_with(api, name, <T as Default>::default()).await
     }
 
     pub async fn new_with(
         api: &'a Api<T>,
         name: String,
-        mut lock_config: T,
+        mut lock_value: T,
     ) -> Result<Lock<'a, T>, kube::Error> {
-        lock_config.meta_mut().name = Some(name.clone());
+        lock_value.meta_mut().name = Some(name.clone());
+        tag_object(&mut lock_value, "lock".to_string());
 
-        lock_config
-            .labels_mut()
-            .insert("able-seaman/function".to_string(), "lock".to_string());
-
-        loop {
-            match api.create(&PostParams::default(), &lock_config).await {
+        let _locked_value = loop {
+            match api.create(&PostParams::default(), &lock_value).await {
                 Err(kube::Error::Api(kube::error::ErrorResponse {
                     reason, code: 409, ..
                 })) if reason == "AlreadyExists" => {
@@ -125,11 +136,10 @@ where
                 }
 
                 result => {
-                    result?;
-                    break;
+                    break result?;
                 }
             }
-        }
+        };
 
         Ok(Lock { api, name })
     }
