@@ -10,11 +10,10 @@ use crate::release::Objects;
 use crate::release::Release;
 use crate::release::ReleaseInfo;
 use clap::Clap;
+use core::time::Duration;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube::api::DeleteParams;
 use kube::api::Patch;
 use kube::api::PatchParams;
-use kube::api::PostParams;
 use kube::core::DynamicObject;
 use kube::error::ErrorResponse;
 use kube::Api;
@@ -93,46 +92,29 @@ async fn main() -> Result<(), GeneralError> {
             let client = Client::try_default().await?;
             let config_maps: Api<ConfigMap> = Api::default_namespaced(client.clone());
 
-            let lock_name = format!("{}-lock", release.info.name);
-            let mut lock_config = release.as_config_map()?;
-            lock_config.metadata.name = Some(lock_name.clone());
+            {
+                let _lock = release.lock(&config_maps).await?;
 
-            let create_result = config_maps
-                .create(&PostParams::default(), &lock_config)
-                .await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
 
-            match create_result {
-                Err(kube::Error::Api(ErrorResponse { reason, code, .. }))
-                    if reason == "AlreadyExists" && code == 409 =>
-                {
-                    return Err(GeneralError::ReleaseIsBusy);
-                }
-                _ => {
-                    create_result?;
-                }
+                match config_maps.get(release.info.name.as_str()).await {
+                    Err(kube::Error::Api(ErrorResponse { reason, code, .. }))
+                        if reason == "NotFound" && code == 404 =>
+                    {
+                        apply_all(client, &release.objects).await?;
+                    }
+
+                    Ok(_existing_config) => {
+                        apply_all(client, &release.objects).await?;
+                    }
+
+                    result => {
+                        result?;
+                    }
+                };
             }
 
-            let result = match config_maps.get(release.info.name.as_str()).await {
-                Err(kube::Error::Api(ErrorResponse { reason, code, .. }))
-                    if reason == "NotFound" && code == 404 =>
-                {
-                    apply_all(client, &release.objects).await
-                }
-
-                Ok(_existing_config) => apply_all(client, &release.objects).await,
-
-                result => result
-                    .map(|_| ())
-                    .map_err(|err| GeneralError::KubeError(err)),
-            };
-
-            config_maps
-                .delete(lock_name.as_str(), &DeleteParams::default())
-                .await?;
-
-            result?;
-
-            let mut release_config = lock_config.clone();
+            let mut release_config = release.as_config_map()?;
             release_config.metadata.name = Some(release.info.name.clone());
 
             config_maps

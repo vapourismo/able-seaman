@@ -1,4 +1,5 @@
 use crate::errors::GeneralError;
+use crate::k8s::Lock;
 use crate::objects::attach_annotations;
 use crate::objects::attach_labels;
 use k8s_openapi::api::core::v1::ConfigMap;
@@ -68,6 +69,10 @@ impl Release {
             info,
             objects: BTreeMap::new(),
         }
+    }
+
+    pub async fn lock<'a>(&self, api: &'a Api<ConfigMap>) -> Result<Lock<'a>, kube::Error> {
+        Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
     pub fn from_config_map(config_map: &ConfigMap) -> Result<Self, GeneralError> {
