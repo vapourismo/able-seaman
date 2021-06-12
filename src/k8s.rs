@@ -4,6 +4,9 @@ pub use lock::*;
 pub mod api_resource;
 pub use api_resource::*;
 
+pub mod transaction;
+pub use transaction::*;
+
 use crate::meta::CRATE_VERSION;
 use kube::ResourceExt;
 use serde::Serialize;

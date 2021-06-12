@@ -1,3 +1,4 @@
+use crate::release::ReleaseError;
 use kube::core::DynamicObject;
 use std::path::Path;
 
@@ -10,6 +11,7 @@ pub enum GeneralError {
     ObjectWithoutName(DynamicObject),
     DuplicateObject(String),
     FileNotFound(Box<Path>),
+    ReleaseError(ReleaseError),
 }
 
 impl From<std::io::Error> for GeneralError {
@@ -31,7 +33,13 @@ impl From<serde_json::Error> for GeneralError {
 }
 
 impl From<kube::error::Error> for GeneralError {
-    fn from(error: kube::error::Error) -> GeneralError {
+    fn from(error: kube::Error) -> GeneralError {
         GeneralError::KubeError(error)
+    }
+}
+
+impl From<ReleaseError> for GeneralError {
+    fn from(error: ReleaseError) -> GeneralError {
+        GeneralError::ReleaseError(error)
     }
 }

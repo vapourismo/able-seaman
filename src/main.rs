@@ -30,6 +30,10 @@ enum Command {
         release_name: String,
         input_files: Vec<String>,
     },
+    Install {
+        release_name: String,
+        input_files: Vec<String>,
+    },
 }
 
 #[derive(Clap, Clone, Debug)]
@@ -122,6 +126,20 @@ async fn main() -> Result<(), GeneralError> {
                     &Patch::Apply(release_config),
                 )
                 .await?;
+        }
+
+        Command::Install {
+            release_name,
+            input_files,
+        } => {
+            let mut release = Release::new(ReleaseInfo { name: release_name });
+
+            for ref file in input_files {
+                release.ingest_objects_from_path(Path::new(file))?;
+            }
+
+            let client = Client::try_default().await?;
+            release.install(client).await?;
         }
     }
 

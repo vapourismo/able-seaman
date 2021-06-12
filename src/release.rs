@@ -1,10 +1,15 @@
 use crate::errors::GeneralError;
+use crate::k8s::apply_dynamic;
+use crate::k8s::create_dynamic;
+use crate::k8s::delete_dynamic;
+use crate::k8s::DynamicError;
 use crate::k8s::Lock;
 use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 use kube::Api;
+use kube::Client;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -41,6 +46,8 @@ fn list_contents(path: &Path) -> Result<Vec<PathBuf>, GeneralError> {
 pub struct ReleaseInfo {
     pub name: String,
 }
+
+pub type Objects = BTreeMap<String, DynamicObject>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
@@ -79,7 +86,17 @@ impl Release {
     where
         SomeRead: Read,
     {
-        self.objects.append(&mut ingest_objects(input)?);
+        for document in serde_yaml::Deserializer::from_reader(input) {
+            let object = DynamicObject::deserialize(document)?;
+
+            if let Some(name) = object.metadata.name.clone() {
+                if let Some(_old_object) = self.objects.insert(name.clone(), object) {
+                    return Err(GeneralError::DuplicateObject(name));
+                }
+            } else {
+                return Err(GeneralError::ObjectWithoutName(object));
+            }
+        }
 
         Ok(())
     }
@@ -91,6 +108,16 @@ impl Release {
         }
 
         Ok(())
+    }
+
+    pub async fn upgrade(&self, old: &Self, client: Client) -> Result<Client, ReleaseError> {
+        let plan = ReleasePlan::new(&self.objects, &old.objects);
+        Ok(plan.execute(client).await?)
+    }
+
+    pub async fn install(&self, client: Client) -> Result<Client, ReleaseError> {
+        let plan = ReleasePlan::new(&self.objects, &BTreeMap::new());
+        Ok(plan.execute(client).await?)
     }
 }
 
@@ -112,25 +139,187 @@ impl Hash for Release {
     }
 }
 
-pub type Objects = BTreeMap<String, DynamicObject>;
+#[derive(Clone, Debug)]
+struct Create {
+    new: DynamicObject,
+}
 
-pub fn ingest_objects<SomeRead>(input: SomeRead) -> Result<Objects, GeneralError>
-where
-    SomeRead: std::io::Read,
-{
-    let mut objects = BTreeMap::new();
+#[derive(Clone, Debug)]
+struct Upgrade {
+    new: DynamicObject,
+    old: DynamicObject,
+}
 
-    for document in serde_yaml::Deserializer::from_reader(input) {
-        let object = DynamicObject::deserialize(document)?;
+#[derive(Clone, Debug)]
+struct Delete {
+    old: DynamicObject,
+}
 
-        if let Some(name) = object.metadata.name.clone() {
-            if let Some(_old_object) = objects.insert(name.clone(), object) {
-                return Err(GeneralError::DuplicateObject(name));
-            }
-        } else {
-            return Err(GeneralError::ObjectWithoutName(object));
+#[derive(Debug)]
+enum Action {
+    Create(Create),
+    Upgrade(Upgrade),
+    Delete(Delete),
+}
+
+#[derive(Clone, Debug)]
+pub struct ReleasePlan {
+    creations: Vec<Create>,
+    upgrades: Vec<Upgrade>,
+    deletions: Vec<Delete>,
+}
+
+#[derive(Debug)]
+pub enum ReleaseError {
+    RollbackError {
+        rollback_error: RollbackError,
+        error: DynamicError,
+        action: Action,
+    },
+    ActionError {
+        error: DynamicError,
+        action: Action,
+    },
+}
+
+impl ReleasePlan {
+    pub fn new(new_objects: &Objects, old_objects: &Objects) -> Self {
+        // Find things to create.
+        let creations = new_objects
+            .iter()
+            .filter(|(key, _)| !old_objects.contains_key(*key))
+            .map(|(_, new)| Create { new: new.clone() })
+            .collect();
+
+        // Find things to upgrade.
+        let upgrades = new_objects
+            .iter()
+            .filter_map(|(key, new)| {
+                old_objects.get(key).map(|current| Upgrade {
+                    new: new.clone(),
+                    old: current.clone(),
+                })
+            })
+            .collect();
+
+        // Find things to delete.
+        let deletions = old_objects
+            .iter()
+            .filter(|(key, _)| !new_objects.contains_key(*key))
+            .map(|(_, value)| Delete { old: value.clone() })
+            .collect();
+
+        ReleasePlan {
+            creations,
+            upgrades,
+            deletions,
         }
     }
 
-    Ok(objects)
+    pub async fn execute(&self, mut client: Client) -> Result<Client, ReleaseError> {
+        let rollback_client = client.clone();
+        let mut rollback_creations = Vec::new();
+        let mut rollback_upgrades = Vec::new();
+        let mut rollback_deletions = Vec::new();
+
+        for creation in &self.creations {
+            let result = or_rollback(
+                rollback_client.clone(),
+                &rollback_creations,
+                &rollback_upgrades,
+                &rollback_deletions,
+                Action::Create(creation.clone()),
+                create_dynamic(client, &creation.new).await,
+            )
+            .await?;
+            client = result.client;
+            rollback_deletions.push(&creation.new);
+        }
+
+        for upgrade in &self.upgrades {
+            let result = or_rollback(
+                rollback_client.clone(),
+                &rollback_creations,
+                &rollback_upgrades,
+                &rollback_deletions,
+                Action::Upgrade(upgrade.clone()),
+                apply_dynamic(client, &upgrade.new).await,
+            )
+            .await?;
+            client = result.client;
+            rollback_upgrades.push(&upgrade.old);
+        }
+
+        for deletion in &self.deletions {
+            client = or_rollback(
+                rollback_client.clone(),
+                &rollback_creations,
+                &rollback_upgrades,
+                &rollback_deletions,
+                Action::Delete(deletion.clone()),
+                delete_dynamic(client, &deletion.old).await,
+            )
+            .await?;
+            rollback_creations.push(&deletion.old);
+        }
+
+        Ok(client)
+    }
+}
+
+#[derive(Debug)]
+pub enum RollbackError {
+    DynamicError(DynamicError),
+}
+
+impl From<DynamicError> for RollbackError {
+    fn from(error: DynamicError) -> Self {
+        RollbackError::DynamicError(error)
+    }
+}
+
+async fn rollback(
+    mut client: Client,
+    creations: &Vec<&DynamicObject>,
+    upgrades: &Vec<&DynamicObject>,
+    deletions: &Vec<&DynamicObject>,
+) -> Result<(), RollbackError> {
+    for creation in creations {
+        client = create_dynamic(client, creation).await?.client;
+    }
+
+    for upgrade in upgrades {
+        client = apply_dynamic(client, upgrade).await?.client;
+    }
+
+    for deletion in deletions {
+        client = delete_dynamic(client, deletion).await?;
+    }
+
+    Ok(())
+}
+
+async fn or_rollback<T>(
+    client: Client,
+    creations: &Vec<&DynamicObject>,
+    upgrades: &Vec<&DynamicObject>,
+    deletions: &Vec<&DynamicObject>,
+    action: Action,
+    result: Result<T, DynamicError>,
+) -> Result<T, ReleaseError> {
+    match result {
+        Err(error) => {
+            let rollback_result = rollback(client, &creations, &upgrades, &deletions).await;
+            Err(match rollback_result {
+                Ok(_) => ReleaseError::ActionError { error, action },
+                Err(rollback_error) => ReleaseError::RollbackError {
+                    rollback_error,
+                    error,
+                    action,
+                },
+            })
+        }
+
+        Ok(result) => Ok(result),
+    }
 }
