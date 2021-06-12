@@ -1,10 +1,7 @@
 use crate::errors::GeneralError;
-use crate::release::ReleaseInfo;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::APIResource;
 use kube::core::ApiResource;
-use kube::core::DynamicObject;
 use kube::core::GroupVersionKind;
-use kube::Api;
 use kube::Client;
 
 fn is_eligible_api_resource(resource: &APIResource) -> bool {
@@ -96,52 +93,4 @@ impl ApiKnowledge {
 
         Ok(ApiKnowledge { api_resources })
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct ReleasedObject {
-    pub name: String,
-    pub object: DynamicObject,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReleasedApi {
-    pub api_resource: ApiResource,
-    pub objects: Vec<ReleasedObject>,
-}
-
-pub async fn list_release_resources(
-    client: Client,
-    knowledge: &ApiKnowledge,
-    release_info: &ReleaseInfo,
-) -> Result<(Client, Vec<ReleasedApi>), GeneralError> {
-    let mut all_apis = Vec::new();
-    let mut client = client;
-
-    for api_resource in &knowledge.api_resources {
-        let api: Api<DynamicObject> = Api::all_with(client, api_resource);
-
-        let objects = api.list(&release_info.to_list_params()).await?;
-        let mut released_objects = Vec::new();
-
-        for object in objects {
-            if let Some(name) = &object.metadata.name {
-                released_objects.push(ReleasedObject {
-                    name: name.clone(),
-                    object,
-                });
-            }
-        }
-
-        if released_objects.len() > 0 {
-            all_apis.push(ReleasedApi {
-                api_resource: api_resource.clone(),
-                objects: released_objects,
-            });
-        }
-
-        client = api.into_client();
-    }
-
-    Ok((client, all_apis))
 }

@@ -1,16 +1,16 @@
+pub mod lock;
+pub use lock::*;
+
 use crate::meta::CRATE_VERSION;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use kube::api::DeleteParams;
 use kube::api::ListParams;
-use kube::api::PostParams;
 use kube::api::WatchEvent;
 use kube::core::ApiResource;
 use kube::core::DynamicObject;
 use kube::core::GroupVersionKind;
 use kube::core::TypeMeta;
 use kube::Api;
-use kube::Resource;
 use kube::ResourceExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -60,13 +60,29 @@ impl TryToApiResource for DynamicObject {
 const TYPE_LABEL: &'static str = "able-seaman/type";
 const VERSION_LABEL: &'static str = "able-seaman/version";
 
-fn tag_object<SomeResource>(object: &mut SomeResource, object_type: String)
+#[derive(Clone, Copy, Debug, Serialize)]
+pub enum ObjectType {
+    Lock,
+    Release,
+}
+
+impl ToString for ObjectType {
+    fn to_string(&self) -> String {
+        match self {
+            ObjectType::Lock => "lock",
+            ObjectType::Release => "release",
+        }
+        .to_string()
+    }
+}
+
+pub fn tag_object<SomeResource>(object: &mut SomeResource, object_type: ObjectType)
 where
     SomeResource: ResourceExt,
 {
     object
         .labels_mut()
-        .insert(TYPE_LABEL.to_string(), object_type);
+        .insert(TYPE_LABEL.to_string(), object_type.to_string());
 
     object
         .annotations_mut()
@@ -101,66 +117,4 @@ where
     }
 
     Ok(())
-}
-
-pub struct Lock<'a, T>
-where
-    T: Clone + DeserializeOwned + Debug,
-{
-    api: &'a Api<T>,
-    name: String,
-}
-
-impl<'a, T> Lock<'a, T>
-where
-    T: Resource + Default + Clone + Debug + DeserializeOwned + Serialize,
-{
-    pub async fn new(api: &'a Api<T>, name: String) -> Result<Lock<'a, T>, kube::Error> {
-        Lock::new_with(api, name, <T as Default>::default()).await
-    }
-
-    pub async fn new_with(
-        api: &'a Api<T>,
-        name: String,
-        mut lock_value: T,
-    ) -> Result<Lock<'a, T>, kube::Error> {
-        lock_value.meta_mut().name = Some(name.clone());
-        tag_object(&mut lock_value, "lock".to_string());
-
-        let _locked_value = loop {
-            match api.create(&PostParams::default(), &lock_value).await {
-                Err(kube::Error::Api(kube::error::ErrorResponse {
-                    reason, code: 409, ..
-                })) if reason == "AlreadyExists" => {
-                    wait_for_deletion(&api, &name).await?;
-                }
-
-                result => {
-                    break result?;
-                }
-            }
-        };
-
-        Ok(Lock { api, name })
-    }
-}
-
-impl<'a, T> Drop for Lock<'a, T>
-where
-    T: Clone + DeserializeOwned + Debug,
-{
-    fn drop(&mut self) {
-        let deletion = futures::executor::block_on(
-            self.api
-                .delete(self.name.as_str(), &DeleteParams::default()),
-        );
-
-        match deletion {
-            Err(err) => {
-                eprintln!("Failed to delete locking ConfigMap {}: {}", self.name, err);
-            }
-
-            _ => {}
-        }
-    }
 }

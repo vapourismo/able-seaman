@@ -1,9 +1,8 @@
 use crate::errors::GeneralError;
+use crate::k8s::tag_object;
 use crate::k8s::Lock;
-use crate::objects::attach_annotations;
-use crate::objects::attach_labels;
+use crate::k8s::ObjectType;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube::api::ListParams;
 use kube::core::DynamicObject;
 use kube::Api;
 use serde::Deserialize;
@@ -43,19 +42,6 @@ pub struct ReleaseInfo {
     pub name: String,
 }
 
-impl ReleaseInfo {
-    pub fn configure_object(&self, object: &mut DynamicObject) {
-        attach_labels(object, self.name.clone());
-        attach_annotations(object);
-    }
-
-    pub fn to_list_params(&self) -> ListParams {
-        let label = format!("able-seaman/release={}", self.name);
-
-        ListParams::default().labels(&label)
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
     pub info: ReleaseInfo,
@@ -77,19 +63,6 @@ impl Release {
         Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
-    pub fn from_config_map(config_map: &ConfigMap) -> Result<Self, GeneralError> {
-        if let Some(data) = &config_map.data {
-            let release = serde_json::from_str(
-                data.get("release")
-                    .ok_or(GeneralError::BadReleaseConfigMap(config_map.clone()))?,
-            )?;
-
-            Ok(release)
-        } else {
-            Err(GeneralError::BadReleaseConfigMap(config_map.clone()))
-        }
-    }
-
     pub fn to_config_map(&self) -> Result<ConfigMap, serde_json::Error> {
         let mut data = BTreeMap::new();
         data.insert("release".to_string(), serde_json::to_string(self)?);
@@ -97,6 +70,7 @@ impl Release {
         let mut config_map = ConfigMap::default();
         config_map.data = Some(data);
         config_map.metadata.name = Some(self.info.name.clone());
+        tag_object(&mut config_map, ObjectType::Release);
 
         Ok(config_map)
     }
