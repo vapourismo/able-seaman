@@ -1,9 +1,7 @@
 mod errors;
 mod k8s;
 mod meta;
-mod objects;
 mod release;
-mod resources;
 
 use crate::errors::GeneralError;
 use crate::release::Manager;
@@ -11,8 +9,6 @@ use crate::release::Objects;
 use crate::release::Release;
 use crate::release::ReleaseInfo;
 use clap::Clap;
-use k8s_openapi::api::core::v1::ConfigMap;
-use kube::Api;
 use kube::Client;
 use std::path::Path;
 

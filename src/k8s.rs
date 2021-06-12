@@ -18,16 +18,16 @@ pub const VERSION_LABEL: &'static str = "able-seaman/version";
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum ObjectType {
     Lock,
-    Release,
     ReleaseState,
+    Managed,
 }
 
 impl ToString for ObjectType {
     fn to_string(&self) -> String {
         match self {
             ObjectType::Lock => "lock",
-            ObjectType::Release => "release",
             ObjectType::ReleaseState => "release-state",
+            ObjectType::Managed => "managed",
         }
         .to_string()
     }
@@ -35,6 +35,15 @@ impl ToString for ObjectType {
 
 pub trait TaggableObject {
     fn tag(&mut self, object_type: ObjectType);
+
+    fn to_tagged(&self, object_type: ObjectType) -> Self
+    where
+        Self: Clone,
+    {
+        let mut new = self.clone();
+        new.tag(object_type);
+        new
+    }
 }
 
 impl<SomeResource: ResourceExt> TaggableObject for SomeResource {

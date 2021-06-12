@@ -73,18 +73,6 @@ impl Release {
         Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
-    pub fn to_config_map(&self) -> Result<ConfigMap, serde_json::Error> {
-        let mut data = BTreeMap::new();
-        data.insert("release".to_string(), serde_json::to_string(self)?);
-
-        let mut config_map = ConfigMap::default();
-        config_map.data = Some(data);
-        config_map.metadata.name = Some(self.info.name.clone());
-        config_map.tag(ObjectType::Release);
-
-        Ok(config_map)
-    }
-
     pub fn ingest_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), GeneralError>
     where
         SomeRead: Read,
@@ -158,13 +146,6 @@ struct Delete {
     old: DynamicObject,
 }
 
-#[derive(Debug)]
-enum Action {
-    Create(Create),
-    Upgrade(Upgrade),
-    Delete(Delete),
-}
-
 #[derive(Clone, Debug)]
 pub struct ReleasePlan {
     creations: Vec<Create>,
@@ -177,11 +158,9 @@ pub enum ReleaseError {
     RollbackError {
         rollback_error: RollbackError,
         error: DynamicError,
-        action: Action,
     },
     ActionError {
         error: DynamicError,
-        action: Action,
     },
 }
 
@@ -191,7 +170,9 @@ impl ReleasePlan {
         let creations = new_objects
             .iter()
             .filter(|(key, _)| !old_objects.contains_key(*key))
-            .map(|(_, new)| Create { new: new.clone() })
+            .map(|(_, new)| Create {
+                new: new.to_tagged(ObjectType::Managed),
+            })
             .collect();
 
         // Find things to upgrade.
@@ -199,8 +180,8 @@ impl ReleasePlan {
             .iter()
             .filter_map(|(key, new)| {
                 old_objects.get(key).map(|current| Upgrade {
-                    new: new.clone(),
-                    old: current.clone(),
+                    new: new.to_tagged(ObjectType::Managed),
+                    old: current.to_tagged(ObjectType::Managed),
                 })
             })
             .collect();
@@ -209,7 +190,9 @@ impl ReleasePlan {
         let deletions = old_objects
             .iter()
             .filter(|(key, _)| !new_objects.contains_key(*key))
-            .map(|(_, value)| Delete { old: value.clone() })
+            .map(|(_, value)| Delete {
+                old: value.to_tagged(ObjectType::Managed),
+            })
             .collect();
 
         ReleasePlan {
@@ -231,7 +214,6 @@ impl ReleasePlan {
                 &rollback_creations,
                 &rollback_upgrades,
                 &rollback_deletions,
-                Action::Create(creation.clone()),
                 create_dynamic(client, &creation.new).await,
             )
             .await?;
@@ -245,7 +227,6 @@ impl ReleasePlan {
                 &rollback_creations,
                 &rollback_upgrades,
                 &rollback_deletions,
-                Action::Upgrade(upgrade.clone()),
                 apply_dynamic(client, &upgrade.new).await,
             )
             .await?;
@@ -259,7 +240,6 @@ impl ReleasePlan {
                 &rollback_creations,
                 &rollback_upgrades,
                 &rollback_deletions,
-                Action::Delete(deletion.clone()),
                 delete_dynamic(client, &deletion.old).await,
             )
             .await?;
@@ -307,18 +287,16 @@ async fn or_rollback<T>(
     creations: &Vec<&DynamicObject>,
     upgrades: &Vec<&DynamicObject>,
     deletions: &Vec<&DynamicObject>,
-    action: Action,
     result: Result<T, DynamicError>,
 ) -> Result<T, ReleaseError> {
     match result {
         Err(error) => {
             let rollback_result = rollback(client, &creations, &upgrades, &deletions).await;
             Err(match rollback_result {
-                Ok(_) => ReleaseError::ActionError { error, action },
+                Ok(_) => ReleaseError::ActionError { error },
                 Err(rollback_error) => ReleaseError::RollbackError {
                     rollback_error,
                     error,
-                    action,
                 },
             })
         }

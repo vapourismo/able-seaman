@@ -8,7 +8,6 @@ use crate::Release;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::Api;
 use kube::Client;
-use kube::ResourceExt;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
