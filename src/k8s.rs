@@ -1,6 +1,5 @@
 use futures::StreamExt;
 use futures::TryStreamExt;
-use k8s_openapi::api::core::v1::ConfigMap;
 use kube::api::DeleteParams;
 use kube::api::ListParams;
 use kube::api::PostParams;
@@ -10,8 +9,11 @@ use kube::core::DynamicObject;
 use kube::core::GroupVersionKind;
 use kube::core::TypeMeta;
 use kube::Api;
+use kube::Resource;
 use kube::ResourceExt;
-use std::collections::BTreeMap;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use std::fmt::Debug;
 
 fn split_api_version(api_version: &str) -> (&str, &str) {
     if let Some((group, version)) = api_version.split_once('/') {
@@ -54,7 +56,13 @@ impl TryToApiResource for DynamicObject {
     }
 }
 
-async fn wait_for_deletion(api: &Api<ConfigMap>, name: &String) -> Result<(), kube::Error> {
+async fn wait_for_deletion<SomeResource>(
+    api: &Api<SomeResource>,
+    name: &String,
+) -> Result<(), kube::Error>
+where
+    SomeResource: Clone + DeserializeOwned + Debug + ResourceExt,
+{
     let mut stream = api
         .watch(
             &ListParams::default()
@@ -78,19 +86,35 @@ async fn wait_for_deletion(api: &Api<ConfigMap>, name: &String) -> Result<(), ku
     Ok(())
 }
 
-pub struct Lock<'a> {
-    api: &'a Api<ConfigMap>,
+pub struct Lock<'a, T>
+where
+    T: Clone + DeserializeOwned + Debug,
+{
+    api: &'a Api<T>,
     name: String,
 }
 
-impl<'a> Lock<'a> {
-    pub async fn new(api: &'a Api<ConfigMap>, name: String) -> Result<Lock<'a>, kube::Error> {
-        let mut lock_config = ConfigMap::default();
-        lock_config.metadata.name = Some(name.clone());
+impl<'a, T> Lock<'a, T>
+where
+    T: Resource + Default + Clone + Debug + DeserializeOwned + Serialize,
+{
+    pub async fn new(api: &'a Api<T>, name: String) -> Result<Lock<'a, T>, kube::Error> {
+        let mut lock_config = <T as Default>::default();
+        lock_config.meta_mut().name = Some(name.clone());
 
-        let mut labels = BTreeMap::new();
-        labels.insert("able-seaman/function".to_string(), "lock".to_string());
-        lock_config.metadata.labels = Some(labels);
+        Lock::new_with(api, name, lock_config).await
+    }
+
+    pub async fn new_with(
+        api: &'a Api<T>,
+        name: String,
+        mut lock_config: T,
+    ) -> Result<Lock<'a, T>, kube::Error> {
+        lock_config.meta_mut().name = Some(name.clone());
+
+        lock_config
+            .labels_mut()
+            .insert("able-seaman/function".to_string(), "lock".to_string());
 
         loop {
             match api.create(&PostParams::default(), &lock_config).await {
@@ -111,7 +135,10 @@ impl<'a> Lock<'a> {
     }
 }
 
-impl<'a> Drop for Lock<'a> {
+impl<'a, T> Drop for Lock<'a, T>
+where
+    T: Clone + DeserializeOwned + Debug,
+{
     fn drop(&mut self) {
         let deletion = futures::executor::block_on(
             self.api

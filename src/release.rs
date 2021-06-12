@@ -6,7 +6,6 @@ use k8s_openapi::api::core::v1::ConfigMap;
 use kube::api::ListParams;
 use kube::core::DynamicObject;
 use kube::Api;
-use kube::Client;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -71,7 +70,10 @@ impl Release {
         }
     }
 
-    pub async fn lock<'a>(&self, api: &'a Api<ConfigMap>) -> Result<Lock<'a>, kube::Error> {
+    pub async fn lock<'a>(
+        &self,
+        api: &'a Api<ConfigMap>,
+    ) -> Result<Lock<'a, ConfigMap>, kube::Error> {
         Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
@@ -88,13 +90,13 @@ impl Release {
         }
     }
 
-    pub fn as_config_map(&self) -> Result<ConfigMap, GeneralError> {
+    pub fn to_config_map(&self) -> Result<ConfigMap, serde_json::Error> {
         let mut data = BTreeMap::new();
-
         data.insert("release".to_string(), serde_json::to_string(self)?);
 
         let mut config_map = ConfigMap::default();
         config_map.data = Some(data);
+        config_map.metadata.name = Some(self.info.name.clone());
 
         Ok(config_map)
     }

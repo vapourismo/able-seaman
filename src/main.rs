@@ -95,8 +95,6 @@ async fn main() -> Result<(), GeneralError> {
             {
                 let _lock = release.lock(&config_maps).await?;
 
-                tokio::time::sleep(Duration::from_secs(10)).await;
-
                 match config_maps.get(release.info.name.as_str()).await {
                     Err(kube::Error::Api(ErrorResponse { reason, code, .. }))
                         if reason == "NotFound" && code == 404 =>
@@ -114,7 +112,7 @@ async fn main() -> Result<(), GeneralError> {
                 };
             }
 
-            let mut release_config = release.as_config_map()?;
+            let mut release_config = release.to_config_map()?;
             release_config.metadata.name = Some(release.info.name.clone());
 
             config_maps
