@@ -1,11 +1,11 @@
-mod api;
 mod errors;
+mod k8s;
 mod objects;
 mod release;
 mod resources;
 
-use crate::api::TryToApiResource;
 use crate::errors::GeneralError;
+use crate::k8s::TryToApiResource;
 use crate::release::Objects;
 use crate::release::Release;
 use crate::release::ReleaseInfo;
