@@ -4,7 +4,7 @@ mod meta;
 mod release;
 
 use crate::errors::GeneralError;
-use crate::release::Manager;
+use crate::release::manager::Manager;
 use crate::release::Objects;
 use crate::release::Release;
 use crate::release::ReleaseInfo;

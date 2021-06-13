@@ -1,4 +1,4 @@
-use crate::release::ManagerError;
+use crate::release::manager::ManagerError;
 use crate::release::ReleaseError;
 use kube::core::DynamicObject;
 use std::path::Path;
