@@ -119,14 +119,17 @@ impl ReleasePlan {
 }
 
 #[derive(Debug)]
-pub enum RollbackError {
-    DynamicError(DynamicError),
+pub enum RollbackAction {
+    Create,
+    Apply,
+    Delete,
 }
 
-impl From<DynamicError> for RollbackError {
-    fn from(error: DynamicError) -> Self {
-        RollbackError::DynamicError(error)
-    }
+#[derive(Debug)]
+pub struct RollbackError {
+    error: DynamicError,
+    action: RollbackAction,
+    object: DynamicObject,
 }
 
 async fn rollback(
@@ -135,16 +138,33 @@ async fn rollback(
     upgrades: &Vec<&DynamicObject>,
     deletions: &Vec<&DynamicObject>,
 ) -> Result<(), RollbackError> {
+    let with_error = |action: RollbackAction, object: &&DynamicObject| {
+        let object = (*object).clone();
+        move |error| RollbackError {
+            error,
+            action,
+            object,
+        }
+    };
+
     for creation in creations {
-        client = create_dynamic(client, creation).await?.client;
+        client = create_dynamic(client, creation)
+            .await
+            .map_err(with_error(RollbackAction::Create, creation))?
+            .client;
     }
 
     for upgrade in upgrades {
-        client = apply_dynamic(client, upgrade).await?.client;
+        client = apply_dynamic(client, upgrade)
+            .await
+            .map_err(with_error(RollbackAction::Apply, upgrade))?
+            .client;
     }
 
     for deletion in deletions {
-        client = delete_dynamic(client, deletion).await?;
+        client = delete_dynamic(client, deletion)
+            .await
+            .map_err(with_error(RollbackAction::Delete, deletion))?;
     }
 
     Ok(())
