@@ -1,11 +1,11 @@
 pub mod manager;
 pub mod plan;
+pub mod rollback;
 
 use crate::errors::GeneralError;
 use crate::k8s::DynamicError;
 use crate::k8s::Lock;
 use crate::release::plan::ReleasePlan;
-use crate::release::plan::RollbackError;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 use kube::Api;
@@ -50,7 +50,7 @@ pub struct ReleaseInfo {
 #[derive(Debug)]
 pub enum ReleaseError {
     RollbackError {
-        rollback_error: RollbackError,
+        rollback_error: rollback::RollbackError,
         error: DynamicError,
     },
     ActionError {

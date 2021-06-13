@@ -3,26 +3,46 @@ use crate::k8s::create_dynamic;
 use crate::k8s::delete_dynamic;
 use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
+use crate::release::rollback;
 use crate::release::DynamicError;
 use crate::release::Objects;
 use crate::release::ReleaseError;
+use async_trait::async_trait;
 use kube::core::DynamicObject;
 use kube::Client;
 
 #[derive(Clone, Debug)]
-struct Create {
+pub struct Create {
     new: DynamicObject,
 }
 
+impl rollback::Rollbackable for Create {
+    fn to_rollback(&self) -> (rollback::RollbackAction, DynamicObject) {
+        (rollback::RollbackAction::Delete, self.new.clone())
+    }
+}
+
 #[derive(Clone, Debug)]
-struct Upgrade {
+pub struct Upgrade {
     new: DynamicObject,
     old: DynamicObject,
 }
 
+impl rollback::Rollbackable for Upgrade {
+    fn to_rollback(&self) -> (rollback::RollbackAction, DynamicObject) {
+        (rollback::RollbackAction::Apply, self.old.clone())
+    }
+}
+
 #[derive(Clone, Debug)]
-struct Delete {
+pub struct Delete {
     old: DynamicObject,
+}
+
+impl rollback::Rollbackable for Delete {
+    fn to_rollback(&self) -> (rollback::RollbackAction, DynamicObject) {
+        (rollback::RollbackAction::Create, self.old.clone())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -71,124 +91,85 @@ impl ReleasePlan {
     }
 
     pub async fn execute(&self, mut client: Client) -> Result<Client, ReleaseError> {
-        let rollback_client = client.clone();
-        let mut rollback_creations = Vec::new();
-        let mut rollback_upgrades = Vec::new();
-        let mut rollback_deletions = Vec::new();
+        let mut rollback_plan = rollback::RollbackPlan::new();
+        let mut rollback_client = client.clone();
 
         for creation in &self.creations {
-            let result = or_rollback(
-                rollback_client.clone(),
-                &rollback_creations,
-                &rollback_upgrades,
-                &rollback_deletions,
-                create_dynamic(client, &creation.new).await,
-            )
-            .await?;
-            client = result.client;
-            rollback_deletions.push(&creation.new);
+            let result = create_dynamic(client, &creation.new)
+                .await
+                .on_err_rollback(rollback_client, &rollback_plan)
+                .await?;
+
+            client = result.result.client;
+            rollback_client = result.rollback_client;
+
+            rollback_plan.register(creation);
         }
 
         for upgrade in &self.upgrades {
-            let result = or_rollback(
-                rollback_client.clone(),
-                &rollback_creations,
-                &rollback_upgrades,
-                &rollback_deletions,
-                apply_dynamic(client, &upgrade.new).await,
-            )
-            .await?;
-            client = result.client;
-            rollback_upgrades.push(&upgrade.old);
+            let result = apply_dynamic(client, &upgrade.new)
+                .await
+                .on_err_rollback(rollback_client, &rollback_plan)
+                .await?;
+
+            client = result.result.client;
+            rollback_client = result.rollback_client;
+
+            rollback_plan.register(upgrade);
         }
 
         for deletion in &self.deletions {
-            client = or_rollback(
-                rollback_client.clone(),
-                &rollback_creations,
-                &rollback_upgrades,
-                &rollback_deletions,
-                delete_dynamic(client, &deletion.old).await,
-            )
-            .await?;
-            rollback_creations.push(&deletion.old);
+            let result = delete_dynamic(client, &deletion.old)
+                .await
+                .on_err_rollback(rollback_client, &rollback_plan)
+                .await?;
+
+            client = result.result;
+            rollback_client = result.rollback_client;
+
+            rollback_plan.register(deletion);
         }
 
         Ok(client)
     }
 }
 
-#[derive(Debug)]
-pub enum RollbackAction {
-    Create,
-    Apply,
-    Delete,
+struct RollbackTriggerResult<T> {
+    result: T,
+    rollback_client: Client,
 }
 
-#[derive(Debug)]
-pub struct RollbackError {
-    error: DynamicError,
-    action: RollbackAction,
-    object: DynamicObject,
+#[async_trait]
+pub trait RollbackTrigger<T, E> {
+    async fn on_err_rollback(self, client: Client, plan: &rollback::RollbackPlan) -> Result<T, E>;
 }
 
-async fn rollback(
-    mut client: Client,
-    creations: &Vec<&DynamicObject>,
-    upgrades: &Vec<&DynamicObject>,
-    deletions: &Vec<&DynamicObject>,
-) -> Result<(), RollbackError> {
-    let with_error = |action: RollbackAction, object: &&DynamicObject| {
-        let object = (*object).clone();
-        move |error| RollbackError {
-            error,
-            action,
-            object,
+#[async_trait]
+impl<T> RollbackTrigger<RollbackTriggerResult<T>, ReleaseError> for Result<T, DynamicError>
+where
+    T: Send,
+{
+    async fn on_err_rollback(
+        self,
+        client: Client,
+        plan: &rollback::RollbackPlan,
+    ) -> Result<RollbackTriggerResult<T>, ReleaseError> {
+        match self {
+            Ok(result) => Ok(RollbackTriggerResult {
+                result,
+                rollback_client: client,
+            }),
+
+            Err(error) => {
+                let rollback_result = plan.execute(client).await;
+                Err(match rollback_result {
+                    Ok(_) => ReleaseError::ActionError { error },
+                    Err(rollback_error) => ReleaseError::RollbackError {
+                        rollback_error,
+                        error,
+                    },
+                })
+            }
         }
-    };
-
-    for creation in creations {
-        client = create_dynamic(client, creation)
-            .await
-            .map_err(with_error(RollbackAction::Create, creation))?
-            .client;
-    }
-
-    for upgrade in upgrades {
-        client = apply_dynamic(client, upgrade)
-            .await
-            .map_err(with_error(RollbackAction::Apply, upgrade))?
-            .client;
-    }
-
-    for deletion in deletions {
-        client = delete_dynamic(client, deletion)
-            .await
-            .map_err(with_error(RollbackAction::Delete, deletion))?;
-    }
-
-    Ok(())
-}
-
-async fn or_rollback<T>(
-    client: Client,
-    creations: &Vec<&DynamicObject>,
-    upgrades: &Vec<&DynamicObject>,
-    deletions: &Vec<&DynamicObject>,
-    result: Result<T, DynamicError>,
-) -> Result<T, ReleaseError> {
-    match result {
-        Err(error) => {
-            let rollback_result = rollback(client, &creations, &upgrades, &deletions).await;
-            Err(match rollback_result {
-                Ok(_) => ReleaseError::ActionError { error },
-                Err(rollback_error) => ReleaseError::RollbackError {
-                    rollback_error,
-                    error,
-                },
-            })
-        }
-
-        Ok(result) => Ok(result),
     }
 }
