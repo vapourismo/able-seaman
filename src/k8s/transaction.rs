@@ -42,7 +42,7 @@ where
     let patched = api
         .patch(
             name.as_str(),
-            &PatchParams::apply(CRATE_NAME),
+            &PatchParams::apply(CRATE_NAME).force(),
             &Patch::Apply(object.clone()),
         )
         .await?;
