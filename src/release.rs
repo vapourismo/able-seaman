@@ -50,7 +50,7 @@ pub struct ReleaseInfo {
 #[derive(Debug)]
 pub enum ReleaseError {
     RollbackError {
-        rollback_error: rollback::RollbackError,
+        rollback_error: rollback::Error,
         error: DynamicError,
     },
     ActionError {

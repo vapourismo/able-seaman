@@ -17,8 +17,8 @@ pub struct Create {
 }
 
 impl rollback::Rollbackable for Create {
-    fn to_rollback(&self) -> (rollback::RollbackAction, &DynamicObject) {
-        (rollback::RollbackAction::Delete, &self.new)
+    fn to_rollback(&self) -> (rollback::Action, &DynamicObject) {
+        (rollback::Action::Delete, &self.new)
     }
 }
 
@@ -29,8 +29,8 @@ pub struct Upgrade {
 }
 
 impl rollback::Rollbackable for Upgrade {
-    fn to_rollback(&self) -> (rollback::RollbackAction, &DynamicObject) {
-        (rollback::RollbackAction::Apply, &self.old)
+    fn to_rollback(&self) -> (rollback::Action, &DynamicObject) {
+        (rollback::Action::Apply, &self.old)
     }
 }
 
@@ -40,8 +40,8 @@ pub struct Delete {
 }
 
 impl rollback::Rollbackable for Delete {
-    fn to_rollback(&self) -> (rollback::RollbackAction, &DynamicObject) {
-        (rollback::RollbackAction::Create, &self.old)
+    fn to_rollback(&self) -> (rollback::Action, &DynamicObject) {
+        (rollback::Action::Create, &self.old)
     }
 }
 
@@ -91,7 +91,7 @@ impl ReleasePlan {
     }
 
     pub async fn execute(&self, mut client: Client) -> Result<Client, ReleaseError> {
-        let mut rollback_plan = rollback::RollbackPlan::new();
+        let mut rollback_plan = rollback::Plan::new();
         let mut rollback_client = client.clone();
 
         for creation in &self.creations {
@@ -141,7 +141,7 @@ struct RollbackTriggerResult<T> {
 
 #[async_trait]
 pub trait RollbackTrigger<T, E> {
-    async fn on_err_rollback(self, client: Client, plan: &rollback::RollbackPlan) -> Result<T, E>;
+    async fn on_err_rollback(self, client: Client, plan: &rollback::Plan) -> Result<T, E>;
 }
 
 #[async_trait]
@@ -152,7 +152,7 @@ where
     async fn on_err_rollback(
         self,
         client: Client,
-        plan: &rollback::RollbackPlan,
+        plan: &rollback::Plan,
     ) -> Result<RollbackTriggerResult<T>, ReleaseError> {
         match self {
             Ok(result) => Ok(RollbackTriggerResult {
