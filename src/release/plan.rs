@@ -17,8 +17,8 @@ pub struct Create {
 }
 
 impl rollback::Rollbackable for Create {
-    fn to_rollback(&self) -> (rollback::RollbackAction, DynamicObject) {
-        (rollback::RollbackAction::Delete, self.new.clone())
+    fn to_rollback(&self) -> (rollback::RollbackAction, &DynamicObject) {
+        (rollback::RollbackAction::Delete, &self.new)
     }
 }
 
@@ -29,8 +29,8 @@ pub struct Upgrade {
 }
 
 impl rollback::Rollbackable for Upgrade {
-    fn to_rollback(&self) -> (rollback::RollbackAction, DynamicObject) {
-        (rollback::RollbackAction::Apply, self.old.clone())
+    fn to_rollback(&self) -> (rollback::RollbackAction, &DynamicObject) {
+        (rollback::RollbackAction::Apply, &self.old)
     }
 }
 
@@ -40,8 +40,8 @@ pub struct Delete {
 }
 
 impl rollback::Rollbackable for Delete {
-    fn to_rollback(&self) -> (rollback::RollbackAction, DynamicObject) {
-        (rollback::RollbackAction::Create, self.old.clone())
+    fn to_rollback(&self) -> (rollback::RollbackAction, &DynamicObject) {
+        (rollback::RollbackAction::Create, &self.old)
     }
 }
 

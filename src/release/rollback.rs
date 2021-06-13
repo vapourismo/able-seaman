@@ -6,7 +6,7 @@ use crate::release::DynamicObject;
 use kube::Client;
 
 pub trait Rollbackable {
-    fn to_rollback(&self) -> (RollbackAction, DynamicObject);
+    fn to_rollback(&self) -> (RollbackAction, &DynamicObject);
 }
 
 #[derive(Debug)]
@@ -23,13 +23,13 @@ pub struct RollbackError {
     object: DynamicObject,
 }
 
-pub struct RollbackPlan {
-    creations: Vec<DynamicObject>,
-    upgrades: Vec<DynamicObject>,
-    deletions: Vec<DynamicObject>,
+pub struct RollbackPlan<'a> {
+    creations: Vec<&'a DynamicObject>,
+    upgrades: Vec<&'a DynamicObject>,
+    deletions: Vec<&'a DynamicObject>,
 }
 
-impl RollbackPlan {
+impl<'a> RollbackPlan<'a> {
     pub fn new() -> Self {
         RollbackPlan {
             creations: Vec::new(),
@@ -71,7 +71,7 @@ impl RollbackPlan {
         Ok(client)
     }
 
-    pub fn register<T: Rollbackable>(&mut self, action: &T) {
+    pub fn register<T: Rollbackable>(&mut self, action: &'a T) {
         match action.to_rollback() {
             (RollbackAction::Create, object) => {
                 self.creations.push(object);
