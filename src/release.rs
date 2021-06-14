@@ -2,8 +2,7 @@ pub mod manager;
 pub mod plan;
 pub mod rollback;
 
-use crate::errors::GeneralError;
-use crate::k8s::DynamicError;
+use crate::k8s::transaction;
 use crate::k8s::Lock;
 use crate::release::plan::ReleasePlan;
 use k8s_openapi::api::core::v1::ConfigMap;
@@ -15,11 +14,12 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::hash::Hash;
+use std::io;
 use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 
-fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), GeneralError> {
+fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), io::Error> {
     if path.is_dir() {
         for entry in path.read_dir()? {
             let dir = entry?.path();
@@ -28,15 +28,16 @@ fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), Genera
     } else if path.exists() {
         paths.push(path.to_path_buf());
     } else {
-        return Err(GeneralError::FileNotFound(
-            path.to_owned().into_boxed_path(),
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{}", path.as_os_str().to_str().expect("BadPath")),
         ));
     }
 
     Ok(())
 }
 
-fn list_contents(path: &Path) -> Result<Vec<PathBuf>, GeneralError> {
+fn list_contents(path: &Path) -> Result<Vec<PathBuf>, io::Error> {
     let mut paths = Vec::new();
     list_contents_vec(&mut paths, path)?;
     Ok(paths)
@@ -48,20 +49,41 @@ pub struct ReleaseInfo {
 }
 
 #[derive(Debug)]
-pub enum ReleaseError {
+pub enum Error {
     RollbackError {
-        rollback_error: rollback::Error,
-        error: DynamicError,
+        error: rollback::Error,
+        cause: transaction::Error,
     },
-    ActionError {
-        error: DynamicError,
+
+    ReleaseError {
+        error: transaction::Error,
     },
+}
+
+#[derive(Debug)]
+pub enum IngestError {
+    DuplicateObject(String),
+    ObjectWithoutName(DynamicObject),
+    IOError(io::Error),
+    YAMLError(serde_yaml::Error),
+}
+
+impl From<serde_yaml::Error> for IngestError {
+    fn from(error: serde_yaml::Error) -> IngestError {
+        IngestError::YAMLError(error)
+    }
+}
+
+impl From<io::Error> for IngestError {
+    fn from(error: io::Error) -> IngestError {
+        IngestError::IOError(error)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
-    pub info: ReleaseInfo,
-    pub objects: Objects,
+    info: ReleaseInfo,
+    objects: Objects,
 }
 
 pub type Objects = BTreeMap<String, DynamicObject>;
@@ -81,7 +103,7 @@ impl Release {
         Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
-    pub fn ingest_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), GeneralError>
+    pub fn ingest_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), IngestError>
     where
         SomeRead: Read,
     {
@@ -90,17 +112,17 @@ impl Release {
 
             if let Some(name) = object.metadata.name.clone() {
                 if let Some(_old_object) = self.objects.insert(name.clone(), object) {
-                    return Err(GeneralError::DuplicateObject(name));
+                    return Err(IngestError::DuplicateObject(name));
                 }
             } else {
-                return Err(GeneralError::ObjectWithoutName(object));
+                return Err(IngestError::ObjectWithoutName(object));
             }
         }
 
         Ok(())
     }
 
-    pub fn ingest_objects_from_path(&mut self, input: &Path) -> Result<(), GeneralError> {
+    pub fn ingest_objects_from_path(&mut self, input: &Path) -> Result<(), IngestError> {
         for file in list_contents(input)? {
             let file = File::open(file.as_path())?;
             self.ingest_objects(file)?;
@@ -109,12 +131,12 @@ impl Release {
         Ok(())
     }
 
-    pub async fn upgrade(&self, old: &Self, client: Client) -> Result<Client, ReleaseError> {
+    pub async fn upgrade(&self, old: &Self, client: Client) -> Result<Client, Error> {
         let plan = ReleasePlan::new(&self.objects, &old.objects);
         Ok(plan.execute(client).await?)
     }
 
-    pub async fn install(&self, client: Client) -> Result<Client, ReleaseError> {
+    pub async fn install(&self, client: Client) -> Result<Client, Error> {
         let plan = ReleasePlan::new(&self.objects, &BTreeMap::new());
         Ok(plan.execute(client).await?)
     }

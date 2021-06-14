@@ -1,8 +1,7 @@
-use crate::k8s::apply;
+use crate::k8s::transaction;
 use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
-use crate::release::DynamicError;
-use crate::release::ReleaseError;
+use crate::release;
 use crate::Objects;
 use crate::Release;
 use k8s_openapi::api::core::v1::ConfigMap;
@@ -13,34 +12,25 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
-pub enum ManagerError {
+pub enum Error {
     KubeError(kube::Error),
     ReleaseStateError(ReleaseStateError),
-    DynamicError(DynamicError),
-    ReleaseError(ReleaseError),
+
+    ReleaseError {
+        state: ReleaseState,
+        error: release::Error,
+    },
 }
 
-impl From<kube::Error> for ManagerError {
+impl From<kube::Error> for Error {
     fn from(error: kube::Error) -> Self {
-        ManagerError::KubeError(error)
+        Error::KubeError(error)
     }
 }
 
-impl From<ReleaseStateError> for ManagerError {
+impl From<ReleaseStateError> for Error {
     fn from(error: ReleaseStateError) -> Self {
-        ManagerError::ReleaseStateError(error)
-    }
-}
-
-impl From<DynamicError> for ManagerError {
-    fn from(error: DynamicError) -> Self {
-        ManagerError::DynamicError(error)
-    }
-}
-
-impl From<ReleaseError> for ManagerError {
-    fn from(error: ReleaseError) -> Self {
-        ManagerError::ReleaseError(error)
+        Error::ReleaseStateError(error)
     }
 }
 
@@ -54,10 +44,7 @@ impl Manager {
         Manager { client }
     }
 
-    pub async fn get_release_state(
-        &self,
-        name: &str,
-    ) -> Result<Option<ReleaseState>, ManagerError> {
+    pub async fn get_release_state(&self, name: &str) -> Result<Option<ReleaseState>, Error> {
         let api: Api<ConfigMap> = Api::default_namespaced(self.client.clone());
 
         match api.get(name).await {
@@ -65,28 +52,13 @@ impl Manager {
                 reason, code: 404, ..
             })) if reason == "NotFound" => Ok(None),
 
-            Err(err) => Err(ManagerError::KubeError(err)),
+            Err(err) => Err(Error::KubeError(err)),
 
             Ok(value) => Ok(Some(ReleaseState::from_config_map(&value)?)),
         }
     }
 
-    pub async fn put_release_state(
-        &self,
-        name: &str,
-        release_state: &ReleaseState,
-    ) -> Result<(), ManagerError> {
-        let api: Api<ConfigMap> = Api::default_namespaced(self.client.clone());
-
-        let mut config_map = release_state.to_config_map()?;
-        config_map.metadata.name = Some(name.to_string());
-
-        apply(&api, &config_map).await?;
-
-        Ok(())
-    }
-
-    pub async fn deploy(&self, release: &Release) -> Result<(), ManagerError> {
+    pub async fn deploy(&self, release: &Release) -> Result<(), Error> {
         let config_maps: Api<ConfigMap> = Api::default_namespaced(self.client.clone());
         let _lock = release.lock(&config_maps).await?;
 
@@ -99,8 +71,16 @@ impl Manager {
                     history: Vec::new(),
                 };
 
-                release.install(self.client.clone()).await?;
-                self.put_release_state(release.info.name.as_str(), &state)
+                release
+                    .install(self.client.clone())
+                    .await
+                    .map_err(|error| Error::ReleaseError {
+                        error,
+                        state: state.clone(),
+                    })?;
+
+                state
+                    .apply(&config_maps, release.info.name.as_str())
                     .await?;
             }
 
@@ -110,12 +90,19 @@ impl Manager {
                     objects: state.current.clone(),
                 };
 
-                release.upgrade(&old_release, self.client.clone()).await?;
+                release
+                    .upgrade(&old_release, self.client.clone())
+                    .await
+                    .map_err(|error| Error::ReleaseError {
+                        error,
+                        state: state.clone(),
+                    })?;
 
                 state.history.insert(0, state.current);
                 state.current = release.objects.clone();
 
-                self.put_release_state(release.info.name.as_str(), &state)
+                state
+                    .apply(&config_maps, release.info.name.as_str())
                     .await?;
             }
         }
@@ -128,6 +115,7 @@ impl Manager {
 pub enum ReleaseStateError {
     CorruptReleaseState(ConfigMap),
     JSONError(serde_json::Error),
+    UpdateError(transaction::Error),
 }
 
 impl From<serde_json::Error> for ReleaseStateError {
@@ -166,5 +154,16 @@ impl ReleaseState {
             .insert("release_state".to_string(), serde_json::to_string(&self)?);
 
         Ok(config_map)
+    }
+
+    async fn apply(&self, api: &Api<ConfigMap>, name: &str) -> Result<(), ReleaseStateError> {
+        let mut config_map = self.to_config_map()?;
+        config_map.metadata.name = Some(name.to_string());
+
+        transaction::apply(&api, &config_map)
+            .await
+            .map_err(|error| ReleaseStateError::UpdateError(error))?;
+
+        Ok(())
     }
 }

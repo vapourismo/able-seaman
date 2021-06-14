@@ -10,7 +10,21 @@ use kube::Client;
 use kube::ResourceExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::Debug;
+use std::error;
+use std::fmt;
+
+#[derive(Debug)]
+pub enum Action {
+    Create,
+    Apply,
+    Delete,
+}
+
+impl fmt::Display for Action {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(formatter, "{:?}", self)
+    }
+}
 
 pub struct EndResult {
     pub client: Client,
@@ -18,26 +32,69 @@ pub struct EndResult {
 }
 
 #[derive(Debug)]
-pub enum DynamicError {
-    NeedApiResource,
-    NeedName,
-    KubeError(kube::Error),
+pub enum Error {
+    NeedApiResource {
+        object: DynamicObject,
+    },
+
+    NeedName {
+        object_rep: String,
+    },
+
+    KubeError {
+        kube_error: kube::Error,
+        action: Action,
+        object_name: String,
+    },
 }
 
-impl From<kube::Error> for DynamicError {
-    fn from(error: kube::Error) -> Self {
-        DynamicError::KubeError(error)
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Error::NeedApiResource { object } => {
+                write!(
+                    formatter,
+                    "Cannot determine API resource type for: {:?}",
+                    object
+                )
+            }
+
+            Error::NeedName { object_rep } => {
+                write!(formatter, "Resource needs a name: {}", object_rep)
+            }
+
+            Error::KubeError {
+                kube_error,
+                action,
+                object_name,
+            } => write!(
+                formatter,
+                "Kubernetes error while trying to {} {}: {}",
+                action, object_name, kube_error
+            ),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Error::KubeError { kube_error, .. } => Some(kube_error),
+            _ => None,
+        }
     }
 }
 
 pub async fn apply<SomeResource>(
     api: &Api<SomeResource>,
     object: &SomeResource,
-) -> Result<SomeResource, DynamicError>
+) -> Result<SomeResource, Error>
 where
-    SomeResource: ResourceExt + Clone + Debug + Serialize + DeserializeOwned,
+    SomeResource: ResourceExt + Clone + fmt::Debug + Serialize + DeserializeOwned,
 {
-    let name = object.meta().name.as_ref().ok_or(DynamicError::NeedName)?;
+    let name = object.meta().name.as_ref().ok_or(Error::NeedName {
+        object_rep: format!("{:?}", object),
+    })?;
 
     let patched = api
         .patch(
@@ -45,18 +102,20 @@ where
             &PatchParams::apply(CRATE_NAME).force(),
             &Patch::Apply(object.clone()),
         )
-        .await?;
+        .await
+        .map_err(|kube_error| Error::KubeError {
+            kube_error,
+            action: Action::Apply,
+            object_name: name.clone(),
+        })?;
 
     Ok(patched)
 }
 
-pub async fn apply_dynamic(
-    client: Client,
-    object: &DynamicObject,
-) -> Result<EndResult, DynamicError> {
-    let api_resource = object
-        .try_to_api_resource()
-        .ok_or(DynamicError::NeedApiResource)?;
+pub async fn apply_dynamic(client: Client, object: &DynamicObject) -> Result<EndResult, Error> {
+    let api_resource = object.try_to_api_resource().ok_or(Error::NeedApiResource {
+        object: object.clone(),
+    })?;
     let api = Api::default_namespaced_with(client, &api_resource);
 
     let patched = apply(&api, object).await?;
@@ -70,21 +129,30 @@ pub async fn apply_dynamic(
 pub async fn create<SomeResource>(
     api: &Api<SomeResource>,
     object: &SomeResource,
-) -> Result<SomeResource, DynamicError>
+) -> Result<SomeResource, Error>
 where
-    SomeResource: Clone + Debug + Serialize + DeserializeOwned,
+    SomeResource: kube::Resource + Clone + fmt::Debug + Serialize + DeserializeOwned,
 {
-    let result = api.create(&PostParams::default(), object).await?;
+    let name = object.meta().name.as_ref().ok_or(Error::NeedName {
+        object_rep: format!("{:?}", object),
+    })?;
+
+    let result = api
+        .create(&PostParams::default(), object)
+        .await
+        .map_err(|kube_error| Error::KubeError {
+            kube_error,
+            action: Action::Create,
+            object_name: name.clone(),
+        })?;
+
     Ok(result)
 }
 
-pub async fn create_dynamic(
-    client: Client,
-    object: &DynamicObject,
-) -> Result<EndResult, DynamicError> {
-    let api_resource = object
-        .try_to_api_resource()
-        .ok_or(DynamicError::NeedApiResource)?;
+pub async fn create_dynamic(client: Client, object: &DynamicObject) -> Result<EndResult, Error> {
+    let api_resource = object.try_to_api_resource().ok_or(Error::NeedApiResource {
+        object: object.clone(),
+    })?;
     let api = Api::default_namespaced_with(client, &api_resource);
 
     let result = create(&api, object).await?;
@@ -98,24 +166,29 @@ pub async fn create_dynamic(
 pub async fn delete<SomeResource>(
     api: &Api<SomeResource>,
     object: &SomeResource,
-) -> Result<(), DynamicError>
+) -> Result<(), Error>
 where
-    SomeResource: ResourceExt + Clone + Debug + DeserializeOwned,
+    SomeResource: ResourceExt + Clone + fmt::Debug + DeserializeOwned,
 {
-    let name = object.meta().name.as_ref().ok_or(DynamicError::NeedName)?;
+    let name = object.meta().name.as_ref().ok_or(Error::NeedName {
+        object_rep: format!("{:?}", object),
+    })?;
 
-    api.delete(name, &DeleteParams::default()).await?;
+    api.delete(name, &DeleteParams::default())
+        .await
+        .map_err(|kube_error| Error::KubeError {
+            kube_error,
+            action: Action::Delete,
+            object_name: name.clone(),
+        })?;
 
     Ok(())
 }
 
-pub async fn delete_dynamic(
-    client: Client,
-    object: &DynamicObject,
-) -> Result<Client, DynamicError> {
-    let api_resource = object
-        .try_to_api_resource()
-        .ok_or(DynamicError::NeedApiResource)?;
+pub async fn delete_dynamic(client: Client, object: &DynamicObject) -> Result<Client, Error> {
+    let api_resource = object.try_to_api_resource().ok_or(Error::NeedApiResource {
+        object: object.clone(),
+    })?;
     let api = Api::default_namespaced_with(client, &api_resource);
 
     delete(&api, object).await?;

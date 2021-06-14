@@ -1,12 +1,9 @@
-use crate::k8s::apply_dynamic;
-use crate::k8s::create_dynamic;
-use crate::k8s::delete_dynamic;
+use crate::k8s::transaction;
 use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
+use crate::release;
 use crate::release::rollback;
-use crate::release::DynamicError;
 use crate::release::Objects;
-use crate::release::ReleaseError;
 use async_trait::async_trait;
 use kube::core::DynamicObject;
 use kube::Client;
@@ -17,8 +14,8 @@ pub struct Create {
 }
 
 impl rollback::Rollbackable for Create {
-    fn to_rollback(&self) -> (rollback::Action, &DynamicObject) {
-        (rollback::Action::Delete, &self.new)
+    fn to_rollback(&self) -> (transaction::Action, &DynamicObject) {
+        (transaction::Action::Delete, &self.new)
     }
 }
 
@@ -29,8 +26,8 @@ pub struct Upgrade {
 }
 
 impl rollback::Rollbackable for Upgrade {
-    fn to_rollback(&self) -> (rollback::Action, &DynamicObject) {
-        (rollback::Action::Apply, &self.old)
+    fn to_rollback(&self) -> (transaction::Action, &DynamicObject) {
+        (transaction::Action::Apply, &self.old)
     }
 }
 
@@ -40,8 +37,8 @@ pub struct Delete {
 }
 
 impl rollback::Rollbackable for Delete {
-    fn to_rollback(&self) -> (rollback::Action, &DynamicObject) {
-        (rollback::Action::Create, &self.old)
+    fn to_rollback(&self) -> (transaction::Action, &DynamicObject) {
+        (transaction::Action::Create, &self.old)
     }
 }
 
@@ -90,12 +87,12 @@ impl ReleasePlan {
         }
     }
 
-    pub async fn execute(&self, mut client: Client) -> Result<Client, ReleaseError> {
+    pub async fn execute(&self, mut client: Client) -> Result<Client, release::Error> {
         let mut rollback_plan = rollback::Plan::new();
         let mut rollback_client = client.clone();
 
         for creation in &self.creations {
-            let result = create_dynamic(client, &creation.new)
+            let result = transaction::create_dynamic(client, &creation.new)
                 .await
                 .on_err_rollback(rollback_client, &rollback_plan)
                 .await?;
@@ -107,7 +104,7 @@ impl ReleasePlan {
         }
 
         for upgrade in &self.upgrades {
-            let result = apply_dynamic(client, &upgrade.new)
+            let result = transaction::apply_dynamic(client, &upgrade.new)
                 .await
                 .on_err_rollback(rollback_client, &rollback_plan)
                 .await?;
@@ -119,7 +116,7 @@ impl ReleasePlan {
         }
 
         for deletion in &self.deletions {
-            let result = delete_dynamic(client, &deletion.old)
+            let result = transaction::delete_dynamic(client, &deletion.old)
                 .await
                 .on_err_rollback(rollback_client, &rollback_plan)
                 .await?;
@@ -145,7 +142,7 @@ pub trait RollbackTrigger<T, E> {
 }
 
 #[async_trait]
-impl<T> RollbackTrigger<RollbackTriggerResult<T>, ReleaseError> for Result<T, DynamicError>
+impl<T> RollbackTrigger<RollbackTriggerResult<T>, release::Error> for Result<T, transaction::Error>
 where
     T: Send,
 {
@@ -153,21 +150,18 @@ where
         self,
         client: Client,
         plan: &rollback::Plan,
-    ) -> Result<RollbackTriggerResult<T>, ReleaseError> {
+    ) -> Result<RollbackTriggerResult<T>, release::Error> {
         match self {
             Ok(result) => Ok(RollbackTriggerResult {
                 result,
                 rollback_client: client,
             }),
 
-            Err(error) => {
+            Err(cause) => {
                 let rollback_result = plan.execute(client).await;
                 Err(match rollback_result {
-                    Ok(_) => ReleaseError::ActionError { error },
-                    Err(rollback_error) => ReleaseError::RollbackError {
-                        rollback_error,
-                        error,
-                    },
+                    Ok(_) => release::Error::ReleaseError { error: cause },
+                    Err(error) => release::Error::RollbackError { error, cause },
                 })
             }
         }

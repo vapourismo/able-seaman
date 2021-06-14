@@ -1,33 +1,40 @@
-use crate::k8s::apply_dynamic;
-use crate::k8s::create_dynamic;
-use crate::k8s::delete_dynamic;
-use crate::release::DynamicError;
-use crate::release::DynamicObject;
-use kube::Client;
+use crate::k8s::transaction;
+use kube;
+use std::error;
+use std::fmt;
 
 pub trait Rollbackable {
-    fn to_rollback(&self) -> (Action, &DynamicObject);
-}
-
-#[derive(Debug)]
-pub enum Action {
-    Create,
-    Apply,
-    Delete,
+    fn to_rollback(&self) -> (transaction::Action, &kube::core::DynamicObject);
 }
 
 #[derive(Debug)]
 pub struct Error {
-    error: DynamicError,
-    action: Action,
-    object: DynamicObject,
+    pub error: transaction::Error,
+    pub action: transaction::Action,
+    pub object: kube::core::DynamicObject,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            formatter,
+            "Error during rollback while trying to {}: {}",
+            self.action, self.error
+        )
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        Some(&self.error)
+    }
 }
 
 #[derive(Debug)]
 pub struct Plan<'a> {
-    creations: Vec<&'a DynamicObject>,
-    upgrades: Vec<&'a DynamicObject>,
-    deletions: Vec<&'a DynamicObject>,
+    creations: Vec<&'a kube::core::DynamicObject>,
+    upgrades: Vec<&'a kube::core::DynamicObject>,
+    deletions: Vec<&'a kube::core::DynamicObject>,
 }
 
 impl<'a> Plan<'a> {
@@ -39,8 +46,8 @@ impl<'a> Plan<'a> {
         }
     }
 
-    pub async fn execute(&self, mut client: Client) -> Result<Client, Error> {
-        let with_error = |action: Action, object: &DynamicObject| {
+    pub async fn execute(&self, mut client: kube::Client) -> Result<kube::Client, Error> {
+        let with_error = |action: transaction::Action, object: &kube::core::DynamicObject| {
             let object = object.clone();
             move |error| Error {
                 error,
@@ -50,23 +57,23 @@ impl<'a> Plan<'a> {
         };
 
         for creation in &self.creations {
-            client = create_dynamic(client, creation)
+            client = transaction::create_dynamic(client, creation)
                 .await
-                .map_err(with_error(Action::Create, creation))?
+                .map_err(with_error(transaction::Action::Create, creation))?
                 .client;
         }
 
         for upgrade in &self.upgrades {
-            client = apply_dynamic(client, upgrade)
+            client = transaction::apply_dynamic(client, upgrade)
                 .await
-                .map_err(with_error(Action::Apply, upgrade))?
+                .map_err(with_error(transaction::Action::Apply, upgrade))?
                 .client;
         }
 
         for deletion in &self.deletions {
-            client = delete_dynamic(client, deletion)
+            client = transaction::delete_dynamic(client, deletion)
                 .await
-                .map_err(with_error(Action::Delete, deletion))?;
+                .map_err(with_error(transaction::Action::Delete, deletion))?;
         }
 
         Ok(client)
@@ -74,15 +81,15 @@ impl<'a> Plan<'a> {
 
     pub fn register<T: Rollbackable>(&mut self, action: &'a T) {
         match action.to_rollback() {
-            (Action::Create, object) => {
+            (transaction::Action::Create, object) => {
                 self.creations.push(object);
             }
 
-            (Action::Apply, object) => {
+            (transaction::Action::Apply, object) => {
                 self.upgrades.push(object);
             }
 
-            (Action::Delete, object) => {
+            (transaction::Action::Delete, object) => {
                 self.deletions.push(object);
             }
         }
