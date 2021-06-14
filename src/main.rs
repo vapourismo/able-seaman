@@ -2,10 +2,6 @@ mod k8s;
 mod meta;
 mod release;
 
-use crate::release::manager::Manager;
-use crate::release::Objects;
-use crate::release::Release;
-use crate::release::ReleaseInfo;
 use clap::Clap;
 use kube::Client;
 use std::path::Path;
@@ -36,7 +32,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let mut release = Release::new(ReleaseInfo { name: release_name });
+            let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
 
             for ref file in input_files {
                 release.ingest_objects_from_path(Path::new(file))?;
@@ -49,7 +45,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let mut release = Release::new(ReleaseInfo { name: release_name });
+            let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
 
             for ref file in input_files {
                 release.ingest_objects_from_path(Path::new(file))?;
@@ -57,7 +53,7 @@ async fn inner_main() -> Result<(), GeneralError> {
 
             let client = Client::try_default().await?;
 
-            let manager = Manager::new(client);
+            let manager = release::manager::Manager::new(client);
             manager.deploy(&release).await?;
         }
     }

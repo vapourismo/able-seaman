@@ -2,22 +2,18 @@ pub mod manager;
 pub mod plan;
 pub mod rollback;
 
+use crate::k8s::lock::Lock;
 use crate::k8s::transaction;
-use crate::k8s::Lock;
 use crate::release::plan::ReleasePlan;
 use k8s_openapi::api::core::v1::ConfigMap;
+use kube;
 use kube::core::DynamicObject;
-use kube::Api;
-use kube::Client;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::hash::Hash;
 use std::io;
-use std::io::Read;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), io::Error> {
     if path.is_dir() {
@@ -98,14 +94,14 @@ impl Release {
 
     pub async fn lock<'a>(
         &self,
-        api: &'a Api<ConfigMap>,
+        api: &'a kube::Api<ConfigMap>,
     ) -> Result<Lock<'a, ConfigMap>, kube::Error> {
         Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
     pub fn ingest_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), IngestError>
     where
-        SomeRead: Read,
+        SomeRead: io::Read,
     {
         for document in serde_yaml::Deserializer::from_reader(input) {
             let object = DynamicObject::deserialize(document)?;
@@ -131,12 +127,12 @@ impl Release {
         Ok(())
     }
 
-    pub async fn upgrade(&self, old: &Self, client: Client) -> Result<Client, Error> {
+    pub async fn upgrade(&self, old: &Self, client: kube::Client) -> Result<kube::Client, Error> {
         let plan = ReleasePlan::new(&self.objects, &old.objects);
         Ok(plan.execute(client).await?)
     }
 
-    pub async fn install(&self, client: Client) -> Result<Client, Error> {
+    pub async fn install(&self, client: kube::Client) -> Result<kube::Client, Error> {
         let plan = ReleasePlan::new(&self.objects, &BTreeMap::new());
         Ok(plan.execute(client).await?)
     }

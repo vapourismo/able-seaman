@@ -2,13 +2,9 @@ use crate::k8s::transaction;
 use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
 use crate::release;
-use crate::Objects;
-use crate::Release;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube::Api;
-use kube::Client;
-use serde::Deserialize;
-use serde::Serialize;
+use kube;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -36,16 +32,16 @@ impl From<ReleaseStateError> for Error {
 
 #[derive(Clone)]
 pub struct Manager {
-    client: Client,
+    client: kube::Client,
 }
 
 impl Manager {
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: kube::Client) -> Self {
         Manager { client }
     }
 
     pub async fn get_release_state(&self, name: &str) -> Result<Option<ReleaseState>, Error> {
-        let api: Api<ConfigMap> = Api::default_namespaced(self.client.clone());
+        let api = kube::Api::default_namespaced(self.client.clone());
 
         match api.get(name).await {
             Err(kube::Error::Api(kube::error::ErrorResponse {
@@ -58,8 +54,8 @@ impl Manager {
         }
     }
 
-    pub async fn deploy(&self, release: &Release) -> Result<(), Error> {
-        let config_maps: Api<ConfigMap> = Api::default_namespaced(self.client.clone());
+    pub async fn deploy(&self, release: &release::Release) -> Result<(), Error> {
+        let config_maps = kube::Api::default_namespaced(self.client.clone());
         let _lock = release.lock(&config_maps).await?;
 
         let state = self.get_release_state(release.info.name.as_str()).await?;
@@ -85,7 +81,7 @@ impl Manager {
             }
 
             Some(mut state) => {
-                let old_release = Release {
+                let old_release = release::Release {
                     info: release.info.clone(),
                     objects: state.current.clone(),
                 };
@@ -126,8 +122,8 @@ impl From<serde_json::Error> for ReleaseStateError {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReleaseState {
-    current: Objects,
-    history: Vec<Objects>,
+    current: release::Objects,
+    history: Vec<release::Objects>,
 }
 
 impl ReleaseState {
@@ -156,7 +152,7 @@ impl ReleaseState {
         Ok(config_map)
     }
 
-    async fn apply(&self, api: &Api<ConfigMap>, name: &str) -> Result<(), ReleaseStateError> {
+    async fn apply(&self, api: &kube::Api<ConfigMap>, name: &str) -> Result<(), ReleaseStateError> {
         let mut config_map = self.to_config_map()?;
         config_map.metadata.name = Some(name.to_string());
 

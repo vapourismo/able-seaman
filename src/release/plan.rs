@@ -3,7 +3,6 @@ use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
 use crate::release;
 use crate::release::rollback;
-use crate::release::Objects;
 use async_trait::async_trait;
 use kube::core::DynamicObject;
 use kube::Client;
@@ -50,7 +49,7 @@ pub struct ReleasePlan {
 }
 
 impl ReleasePlan {
-    pub fn new(new_objects: &Objects, old_objects: &Objects) -> Self {
+    pub fn new(new_objects: &release::Objects, old_objects: &release::Objects) -> Self {
         // Find things to create.
         let creations = new_objects
             .iter()
