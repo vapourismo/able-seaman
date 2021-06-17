@@ -31,6 +31,7 @@ jobs:
       - run: cargo --version
       - run: rustc --version
       - run: cargo build --release --all-features
+      - run: cargo test --release --all-features
   Format:
     runs-on: ubuntu-latest
     steps:
