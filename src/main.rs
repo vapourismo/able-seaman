@@ -63,13 +63,9 @@ async fn inner_main() -> Result<(), GeneralError> {
 
 #[tokio::main]
 async fn main() {
-    match inner_main().await {
-        Err(error) => {
-            panic!("{:?}", error);
-        }
-
-        Ok(_) => {}
-    }
+    inner_main()
+        .await
+        .unwrap_or_else(|error| panic!("{:?}", error))
 }
 
 #[derive(Debug)]
