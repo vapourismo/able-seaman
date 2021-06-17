@@ -1,0 +1,43 @@
+name: Check
+on:
+  push: {}
+  pull_request:
+    branches:
+      - master
+  schedule:
+    - cron: "0 8 * * *"
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust:
+          - stable
+          - 1.53.0
+          - 1.52.1
+        may-fail:
+          - false
+        include:
+          - rust: nightly
+            may-fail: true
+    continue-on-error: ${{ matrix.may-fail }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          default: true
+      - run: cargo --version
+      - run: rustc --version
+      - run: cargo build --release --all-features
+  Format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: "rustfmt"
+      - run: cargo fmt -- --check
