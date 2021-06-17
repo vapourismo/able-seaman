@@ -9,15 +9,29 @@ use std::path::Path;
 
 #[derive(Clap, Clone, Debug)]
 enum Command {
+    #[clap(about = "Package some objects into a release description.")]
     Package {
+        #[clap(about = "Identifier of the release")]
         release_name: String,
+        #[clap(
+            about = "Files or entire directories from which the Kubernetes objects should be read from (you can use '-' to read objects from stdin)"
+        )]
         input_files: Vec<String>,
     },
+
+    #[clap(about = "Deploy a release.")]
     Deploy {
+        #[clap(about = "Identifier of the release")]
         release_name: String,
+        #[clap(
+            about = "Files or entire directories from which the Kubernetes objects should be read from (you can use '-' to read objects from stdin)"
+        )]
         input_files: Vec<String>,
     },
+
+    #[clap(about = "Delete a release.")]
     Delete {
+        #[clap(about = "Identifier of the release")]
         release_name: String,
     },
 }
