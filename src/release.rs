@@ -78,7 +78,7 @@ impl From<io::Error> for IngestError {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
     info: ReleaseInfo,
-    objects: Objects,
+    pub(crate) objects: Objects,
 }
 
 pub type Objects = BTreeMap<String, DynamicObject>;
@@ -129,12 +129,17 @@ impl Release {
 
     pub async fn upgrade(&self, old: &Self, client: kube::Client) -> Result<kube::Client, Error> {
         let plan = ReleasePlan::new(&self.objects, &old.objects);
-        Ok(plan.execute(client).await?)
+        plan.execute(client).await
     }
 
     pub async fn install(&self, client: kube::Client) -> Result<kube::Client, Error> {
         let plan = ReleasePlan::new(&self.objects, &BTreeMap::new());
-        Ok(plan.execute(client).await?)
+        plan.execute(client).await
+    }
+
+    pub async fn uninstall(&self, client: kube::Client) -> Result<kube::Client, Error> {
+        let plan = ReleasePlan::new(&BTreeMap::new(), &self.objects);
+        plan.execute(client).await
     }
 }
 

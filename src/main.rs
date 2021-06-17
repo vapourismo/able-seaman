@@ -16,6 +16,9 @@ enum Command {
         release_name: String,
         input_files: Vec<String>,
     },
+    Delete {
+        release_name: String,
+    },
 }
 
 #[derive(Clap, Clone, Debug)]
@@ -56,6 +59,13 @@ async fn inner_main() -> Result<(), GeneralError> {
             let manager = release::manager::Manager::new(client);
             manager.deploy(&release).await?;
         }
+
+        Command::Delete { release_name } => {
+            let client = Client::try_default().await?;
+
+            let manager = release::manager::Manager::new(client);
+            manager.delete(release_name).await?;
+        }
     }
 
     Ok(())
@@ -65,7 +75,7 @@ async fn inner_main() -> Result<(), GeneralError> {
 async fn main() {
     inner_main()
         .await
-        .unwrap_or_else(|error| panic!("{:?}", error))
+        .unwrap_or_else(|error| panic!("{:#?}", error))
 }
 
 #[derive(Debug)]

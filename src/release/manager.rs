@@ -104,6 +104,33 @@ impl Manager {
 
         Ok(())
     }
+
+    pub async fn delete(&self, name: String) -> Result<(), Error> {
+        let state = self.get_release_state(name.as_str()).await?;
+
+        if let Some(state) = state {
+            let mut release = release::Release::new(release::ReleaseInfo { name });
+            release.objects = state.current.clone();
+
+            let client = release
+                .uninstall(self.client.clone())
+                .await
+                .map_err(|error| Error::ReleaseError {
+                    error: Box::new(error),
+                    state,
+                })?;
+
+            let api: kube::Api<ConfigMap> = kube::Api::default_namespaced(client);
+
+            api.delete(
+                release.info.name.as_str(),
+                &kube::api::DeleteParams::default(),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
