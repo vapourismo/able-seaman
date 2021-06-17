@@ -74,7 +74,7 @@ pub enum GeneralError {
     IOError(std::io::Error),
     YAMLError(serde_yaml::Error),
     JSONError(serde_json::Error),
-    ReleaseError(release::Error),
+    ReleaseError(Box<release::Error>),
     IngestError(release::IngestError),
     ManagerError(release::manager::Error),
 }
@@ -105,7 +105,7 @@ impl From<kube::error::Error> for GeneralError {
 
 impl From<release::Error> for GeneralError {
     fn from(error: release::Error) -> GeneralError {
-        GeneralError::ReleaseError(error)
+        GeneralError::ReleaseError(Box::new(error))
     }
 }
 

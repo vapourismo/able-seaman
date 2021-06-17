@@ -1,5 +1,4 @@
 use crate::k8s::transaction;
-use kube;
 use std::error;
 use std::fmt;
 

@@ -1,6 +1,5 @@
 use crate::k8s::api_resource::TryToApiResource;
 use crate::meta::CRATE_NAME;
-use kube;
 use kube::api;
 use kube::core::DynamicObject;
 use serde::de::DeserializeOwned;

@@ -7,8 +7,8 @@ use kube::ResourceExt;
 use serde::Serialize;
 use std::fmt::Debug;
 
-pub const TYPE_LABEL: &'static str = "able-seaman/type";
-pub const VERSION_LABEL: &'static str = "able-seaman/version";
+pub const TYPE_LABEL: &str = "able-seaman/type";
+pub const VERSION_LABEL: &str = "able-seaman/version";
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum ObjectType {

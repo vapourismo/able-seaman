@@ -3,18 +3,17 @@ use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
 use crate::release;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub enum Error {
     KubeError(kube::Error),
-    ReleaseStateError(ReleaseStateError),
+    ReleaseStateError(Box<ReleaseStateError>),
 
     ReleaseError {
         state: ReleaseState,
-        error: release::Error,
+        error: Box<release::Error>,
     },
 }
 
@@ -26,7 +25,7 @@ impl From<kube::Error> for Error {
 
 impl From<ReleaseStateError> for Error {
     fn from(error: ReleaseStateError) -> Self {
-        Error::ReleaseStateError(error)
+        Error::ReleaseStateError(Box::new(error))
     }
 }
 
@@ -71,7 +70,7 @@ impl Manager {
                     .install(self.client.clone())
                     .await
                     .map_err(|error| Error::ReleaseError {
-                        error,
+                        error: Box::new(error),
                         state: state.clone(),
                     })?;
 
@@ -90,7 +89,7 @@ impl Manager {
                     .upgrade(&old_release, self.client.clone())
                     .await
                     .map_err(|error| Error::ReleaseError {
-                        error,
+                        error: Box::new(error),
                         state: state.clone(),
                     })?;
 
@@ -158,7 +157,7 @@ impl ReleaseState {
 
         transaction::apply(&api, &config_map)
             .await
-            .map_err(|error| ReleaseStateError::UpdateError(error))?;
+            .map_err(ReleaseStateError::UpdateError)?;
 
         Ok(())
     }

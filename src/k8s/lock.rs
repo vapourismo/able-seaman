@@ -3,7 +3,6 @@ use crate::k8s::TaggableObject;
 use crate::k8s::TYPE_LABEL;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use kube;
 use kube::api;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -11,7 +10,7 @@ use std::fmt::Debug;
 
 async fn wait_for_deletion<SomeResource>(
     api: &kube::Api<SomeResource>,
-    name: &String,
+    name: &str,
 ) -> Result<(), kube::Error>
 where
     SomeResource: Clone + DeserializeOwned + Debug + kube::ResourceExt,
@@ -28,7 +27,7 @@ where
 
     while let Some(event) = stream.try_next().await? {
         match event {
-            api::WatchEvent::Deleted(deletion) if &deletion.name() == name => {
+            api::WatchEvent::Deleted(deletion) if deletion.name() == name => {
                 return Ok(());
             }
 
@@ -91,12 +90,8 @@ where
                 .delete(self.name.as_str(), &api::DeleteParams::default()),
         );
 
-        match deletion {
-            Err(err) => {
-                eprintln!("Failed to delete locking ConfigMap {}: {}", self.name, err);
-            }
-
-            _ => {}
+        if let Err(err) = deletion {
+            eprintln!("Failed to delete locking ConfigMap {}: {}", self.name, err);
         }
     }
 }

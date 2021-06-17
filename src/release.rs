@@ -6,7 +6,6 @@ use crate::k8s::lock::Lock;
 use crate::k8s::transaction;
 use crate::release::plan::ReleasePlan;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube;
 use kube::core::DynamicObject;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,7 +25,7 @@ fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), io::Er
     } else {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("{}", path.as_os_str().to_str().expect("BadPath")),
+            path.as_os_str().to_str().expect("BadPath"),
         ));
     }
 
@@ -59,7 +58,7 @@ pub enum Error {
 #[derive(Debug)]
 pub enum IngestError {
     DuplicateObject(String),
-    ObjectWithoutName(DynamicObject),
+    ObjectWithoutName(Box<DynamicObject>),
     IOError(io::Error),
     YAMLError(serde_yaml::Error),
 }
@@ -92,6 +91,7 @@ impl Release {
         }
     }
 
+    #[allow(clippy::needless_lifetimes)]
     pub async fn lock<'a>(
         &self,
         api: &'a kube::Api<ConfigMap>,
@@ -111,7 +111,7 @@ impl Release {
                     return Err(IngestError::DuplicateObject(name));
                 }
             } else {
-                return Err(IngestError::ObjectWithoutName(object));
+                return Err(IngestError::ObjectWithoutName(Box::new(object)));
             }
         }
 
