@@ -4,6 +4,7 @@ mod release;
 
 use clap::Clap;
 use kube::Client;
+use std::io;
 use std::path::Path;
 
 #[derive(Clap, Clone, Debug)]
@@ -27,6 +28,21 @@ struct Options {
     command: Command,
 }
 
+fn ingest_from_file_args<F: IntoIterator<Item = String>>(
+    release: &mut release::Release,
+    files: F,
+) -> Result<(), release::IngestError> {
+    for ref file in files {
+        if file == "-" {
+            release.ingest_objects(io::stdin())?;
+        } else {
+            release.ingest_objects_from_path(Path::new(file))?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn inner_main() -> Result<(), GeneralError> {
     let options = Options::parse();
 
@@ -36,10 +52,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             input_files,
         } => {
             let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
-
-            for ref file in input_files {
-                release.ingest_objects_from_path(Path::new(file))?;
-            }
+            ingest_from_file_args(&mut release, input_files)?;
 
             println!("{}", serde_json::to_string_pretty(&release)?);
         }
@@ -49,20 +62,15 @@ async fn inner_main() -> Result<(), GeneralError> {
             input_files,
         } => {
             let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
-
-            for ref file in input_files {
-                release.ingest_objects_from_path(Path::new(file))?;
-            }
+            ingest_from_file_args(&mut release, input_files)?;
 
             let client = Client::try_default().await?;
-
             let manager = release::manager::Manager::new(client);
             manager.deploy(&release).await?;
         }
 
         Command::Delete { release_name } => {
             let client = Client::try_default().await?;
-
             let manager = release::manager::Manager::new(client);
             manager.delete(release_name).await?;
         }
