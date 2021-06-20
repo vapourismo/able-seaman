@@ -4,6 +4,7 @@ mod release;
 
 use clap::Clap;
 use kube::Client;
+use kube::Resource;
 use std::io;
 use std::path::Path;
 
@@ -57,6 +58,35 @@ fn ingest_from_file_args<F: IntoIterator<Item = String>>(
     Ok(())
 }
 
+fn print_pretty_release_plan(plan: &release::plan::ReleasePlan) {
+    if !plan.creations.is_empty() {
+        println!("Creations: {}", plan.creations.len());
+        for creation in &plan.creations {
+            if let Some(name) = &creation.new.meta().name {
+                println!("+ {}", name)
+            }
+        }
+    }
+
+    if !plan.upgrades.is_empty() {
+        println!("Upgrades: {}", plan.upgrades.len());
+        for upgrade in &plan.upgrades {
+            if let Some(name) = &upgrade.new.meta().name {
+                println!("~ {}", name)
+            }
+        }
+    }
+
+    if !plan.deletions.is_empty() {
+        println!("Deletions: {}", plan.deletions.len());
+        for deletion in &plan.deletions {
+            if let Some(name) = &deletion.old.meta().name {
+                println!("- {}", name)
+            }
+        }
+    }
+}
+
 async fn inner_main() -> Result<(), GeneralError> {
     let options = Options::parse();
 
@@ -80,13 +110,33 @@ async fn inner_main() -> Result<(), GeneralError> {
 
             let client = Client::try_default().await?;
             let manager = release::manager::Manager::new(client);
-            manager.deploy(&release).await?;
+            let result = manager.deploy(&release).await?;
+
+            match result {
+                release::manager::DeployResult::Unchanged => {
+                    println!("Release is unchanged.");
+                }
+
+                release::manager::DeployResult::Installed { plan } => {
+                    println!("Release was installed.");
+                    print_pretty_release_plan(&plan);
+                }
+
+                release::manager::DeployResult::Upgraded { plan } => {
+                    println!("Release was upgraded.");
+                    print_pretty_release_plan(&plan);
+                }
+            }
         }
 
         Command::Delete { release_name } => {
             let client = Client::try_default().await?;
             let manager = release::manager::Manager::new(client);
-            manager.delete(release_name).await?;
+            let possible_plan = manager.delete(release_name).await?;
+
+            if let Some(plan) = possible_plan {
+                print_pretty_release_plan(&plan);
+            }
         }
     }
 

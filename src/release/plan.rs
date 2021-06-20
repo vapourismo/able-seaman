@@ -9,7 +9,7 @@ use kube::Client;
 
 #[derive(Clone, Debug)]
 pub struct Create {
-    new: DynamicObject,
+    pub(crate) new: DynamicObject,
 }
 
 impl rollback::Rollbackable for Create {
@@ -20,8 +20,8 @@ impl rollback::Rollbackable for Create {
 
 #[derive(Clone, Debug)]
 pub struct Upgrade {
-    new: DynamicObject,
-    old: DynamicObject,
+    pub(crate) new: DynamicObject,
+    pub(crate) old: DynamicObject,
 }
 
 impl rollback::Rollbackable for Upgrade {
@@ -32,7 +32,7 @@ impl rollback::Rollbackable for Upgrade {
 
 #[derive(Clone, Debug)]
 pub struct Delete {
-    old: DynamicObject,
+    pub(crate) old: DynamicObject,
 }
 
 impl rollback::Rollbackable for Delete {
@@ -43,9 +43,9 @@ impl rollback::Rollbackable for Delete {
 
 #[derive(Clone, Debug)]
 pub struct ReleasePlan {
-    creations: Vec<Create>,
-    upgrades: Vec<Upgrade>,
-    deletions: Vec<Delete>,
+    pub(crate) creations: Vec<Create>,
+    pub(crate) upgrades: Vec<Upgrade>,
+    pub(crate) deletions: Vec<Delete>,
 }
 
 impl ReleasePlan {

@@ -2,6 +2,7 @@ use crate::k8s::transaction;
 use crate::k8s::ObjectType;
 use crate::k8s::TaggableObject;
 use crate::release;
+use crate::release::plan;
 use k8s_openapi::api::core::v1::ConfigMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -29,6 +30,13 @@ impl From<ReleaseStateError> for Error {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum DeployResult {
+    Unchanged,
+    Installed { plan: plan::ReleasePlan },
+    Upgraded { plan: plan::ReleasePlan },
+}
+
 #[derive(Clone)]
 pub struct Manager {
     client: kube::Client,
@@ -53,30 +61,33 @@ impl Manager {
         }
     }
 
-    pub async fn deploy(&self, release: &release::Release) -> Result<(), Error> {
+    pub async fn deploy(&self, release: &release::Release) -> Result<DeployResult, Error> {
         let config_maps = kube::Api::default_namespaced(self.client.clone());
         let lock = release.lock(&config_maps).await?;
 
         let state = self.get_release_state(release.info.name.as_str()).await?;
 
-        match state {
+        let result = match state {
             None => {
                 let state = ReleaseState {
                     current: release.objects.clone(),
                     history: Vec::new(),
                 };
 
-                release
-                    .install(self.client.clone())
-                    .await
-                    .map_err(|error| Error::ReleaseError {
-                        error: Box::new(error),
-                        state: state.clone(),
-                    })?;
+                let (_client, plan) =
+                    release
+                        .install(self.client.clone())
+                        .await
+                        .map_err(|error| Error::ReleaseError {
+                            error: Box::new(error),
+                            state: state.clone(),
+                        })?;
 
                 state
                     .apply(&config_maps, release.info.name.as_str())
                     .await?;
+
+                DeployResult::Installed { plan }
             }
 
             Some(mut state) => {
@@ -86,10 +97,10 @@ impl Manager {
                 };
 
                 if old_release.hash_value() == release.hash_value() {
-                    return Ok(());
+                    return Ok(DeployResult::Unchanged);
                 }
 
-                release
+                let (_client, plan) = release
                     .upgrade(&old_release, self.client.clone())
                     .await
                     .map_err(|error| Error::ReleaseError {
@@ -103,21 +114,23 @@ impl Manager {
                 state
                     .apply(&config_maps, release.info.name.as_str())
                     .await?;
+
+                DeployResult::Upgraded { plan }
             }
-        }
+        };
 
         lock.release().await?;
-        Ok(())
+        Ok(result)
     }
 
-    pub async fn delete(&self, name: String) -> Result<(), Error> {
+    pub async fn delete(&self, name: String) -> Result<Option<plan::ReleasePlan>, Error> {
         let state = self.get_release_state(name.as_str()).await?;
 
         if let Some(state) = state {
             let mut release = release::Release::new(release::ReleaseInfo { name });
             release.objects = state.current.clone();
 
-            let client = release
+            let (client, plan) = release
                 .uninstall(self.client.clone())
                 .await
                 .map_err(|error| Error::ReleaseError {
@@ -132,9 +145,11 @@ impl Manager {
                 &kube::api::DeleteParams::default(),
             )
             .await?;
-        }
 
-        Ok(())
+            Ok(Some(plan))
+        } else {
+            Ok(None)
+        }
     }
 }
 

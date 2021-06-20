@@ -129,19 +129,32 @@ impl Release {
         Ok(())
     }
 
-    pub async fn upgrade(&self, old: &Self, client: kube::Client) -> Result<kube::Client, Error> {
+    pub async fn upgrade(
+        &self,
+        old: &Self,
+        mut client: kube::Client,
+    ) -> Result<(kube::Client, ReleasePlan), Error> {
         let plan = ReleasePlan::new(&self.objects, &old.objects);
-        plan.execute(client).await
+        client = plan.execute(client).await?;
+        Ok((client, plan))
     }
 
-    pub async fn install(&self, client: kube::Client) -> Result<kube::Client, Error> {
+    pub async fn install(
+        &self,
+        mut client: kube::Client,
+    ) -> Result<(kube::Client, ReleasePlan), Error> {
         let plan = ReleasePlan::new(&self.objects, &BTreeMap::new());
-        plan.execute(client).await
+        client = plan.execute(client).await?;
+        Ok((client, plan))
     }
 
-    pub async fn uninstall(&self, client: kube::Client) -> Result<kube::Client, Error> {
+    pub async fn uninstall(
+        &self,
+        mut client: kube::Client,
+    ) -> Result<(kube::Client, ReleasePlan), Error> {
         let plan = ReleasePlan::new(&BTreeMap::new(), &self.objects);
-        plan.execute(client).await
+        client = plan.execute(client).await?;
+        Ok((client, plan))
     }
 
     pub fn hash_value(&self) -> u64 {
