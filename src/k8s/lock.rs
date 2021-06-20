@@ -44,6 +44,7 @@ where
 {
     api: &'a kube::Api<T>,
     name: String,
+    deleted: bool,
 }
 
 impl<'a, T> Lock<'a, T>
@@ -76,7 +77,19 @@ where
             }
         };
 
-        Ok(Lock { api, name })
+        Ok(Lock {
+            api,
+            name,
+            deleted: false,
+        })
+    }
+
+    pub async fn release(mut self) -> Result<(), kube::Error> {
+        self.api
+            .delete(self.name.as_str(), &api::DeleteParams::default())
+            .await?;
+        self.deleted = true;
+        Ok(())
     }
 }
 
@@ -85,6 +98,10 @@ where
     T: Clone + DeserializeOwned + Debug,
 {
     fn drop(&mut self) {
+        if self.deleted {
+            return;
+        }
+
         let deletion = futures::executor::block_on(
             self.api
                 .delete(self.name.as_str(), &api::DeleteParams::default()),

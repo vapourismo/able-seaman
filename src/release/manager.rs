@@ -55,7 +55,7 @@ impl Manager {
 
     pub async fn deploy(&self, release: &release::Release) -> Result<(), Error> {
         let config_maps = kube::Api::default_namespaced(self.client.clone());
-        let _lock = release.lock(&config_maps).await?;
+        let lock = release.lock(&config_maps).await?;
 
         let state = self.get_release_state(release.info.name.as_str()).await?;
 
@@ -102,6 +102,7 @@ impl Manager {
             }
         }
 
+        lock.release().await?;
         Ok(())
     }
 
