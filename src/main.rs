@@ -13,6 +13,7 @@ enum Command {
     Package {
         #[clap(about = "Identifier of the release")]
         release_name: String,
+
         #[clap(
             about = "Files or entire directories from which the Kubernetes objects should be read from (you can use '-' to read objects from stdin)"
         )]
@@ -23,6 +24,7 @@ enum Command {
     Deploy {
         #[clap(about = "Identifier of the release")]
         release_name: String,
+
         #[clap(
             about = "Files or entire directories from which the Kubernetes objects should be read from (you can use '-' to read objects from stdin)"
         )]
