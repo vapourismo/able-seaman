@@ -40,6 +40,9 @@ enum Command {
 
 #[derive(Clap, Clone, Debug)]
 struct Options {
+    #[clap(short, long)]
+    namespace: Option<String>,
+
     #[clap(subcommand)]
     command: Command,
 }
@@ -109,7 +112,8 @@ async fn inner_main() -> Result<(), GeneralError> {
             let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
             ingest_from_file_args(&mut release, input_files)?;
 
-            let manager = release::manager::Manager::new().await?;
+            let ns_mode = release::manager::NamespaceMode::new(options.namespace);
+            let manager = release::manager::Manager::new(ns_mode).await?;
             let result = manager.deploy(&release).await?;
 
             match result {
@@ -130,7 +134,8 @@ async fn inner_main() -> Result<(), GeneralError> {
         }
 
         Command::Delete { release_name } => {
-            let manager = release::manager::Manager::new().await?;
+            let ns_mode = release::manager::NamespaceMode::new(options.namespace);
+            let manager = release::manager::Manager::new(ns_mode).await?;
             let possible_plan = manager.delete(release_name).await?;
 
             if let Some(plan) = possible_plan {

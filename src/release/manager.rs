@@ -6,6 +6,8 @@ use crate::release::plan;
 use k8s_openapi::api::core::v1::ConfigMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
+use std::str;
 
 #[derive(Debug)]
 pub enum Error {
@@ -37,6 +39,20 @@ pub enum DeployResult {
     Upgraded { plan: plan::ReleasePlan },
 }
 
+#[derive(Clone, Debug)]
+pub enum NamespaceMode {
+    Default,
+    Specific(String),
+}
+
+impl NamespaceMode {
+    pub fn new(namespace: Option<String>) -> NamespaceMode {
+        namespace
+            .map(NamespaceMode::Specific)
+            .unwrap_or(NamespaceMode::Default)
+    }
+}
+
 #[derive(Clone)]
 pub struct Manager {
     client: kube::Client,
@@ -44,8 +60,16 @@ pub struct Manager {
 }
 
 impl Manager {
-    pub async fn new() -> Result<Self, Error> {
-        let client = kube::Client::try_default().await?;
+    pub async fn new(ns_mode: NamespaceMode) -> Result<Self, Error> {
+        let mut config = kube::Config::infer().await?;
+        match ns_mode {
+            NamespaceMode::Default => {}
+            NamespaceMode::Specific(ns) => {
+                config.default_ns = ns;
+            }
+        }
+
+        let client = kube::Client::try_from(config)?;
         let config_maps = kube::Api::default_namespaced(client.clone());
 
         Ok(Manager {
