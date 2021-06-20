@@ -85,6 +85,10 @@ impl Manager {
                     objects: state.current.clone(),
                 };
 
+                if old_release.hash_value() == release.hash_value() {
+                    return Ok(());
+                }
+
                 release
                     .upgrade(&old_release, self.client.clone())
                     .await

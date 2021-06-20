@@ -8,9 +8,11 @@ use crate::release::plan::ReleasePlan;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -140,6 +142,12 @@ impl Release {
     pub async fn uninstall(&self, client: kube::Client) -> Result<kube::Client, Error> {
         let plan = ReleasePlan::new(&BTreeMap::new(), &self.objects);
         plan.execute(client).await
+    }
+
+    pub fn hash_value(&self) -> u64 {
+        let mut hasher = hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
