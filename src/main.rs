@@ -3,7 +3,6 @@ mod meta;
 mod release;
 
 use clap::Clap;
-use kube::Client;
 use kube::Resource;
 use std::io;
 use std::path::Path;
@@ -108,8 +107,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
             ingest_from_file_args(&mut release, input_files)?;
 
-            let client = Client::try_default().await?;
-            let manager = release::manager::Manager::new(client);
+            let manager = release::manager::Manager::new().await?;
             let result = manager.deploy(&release).await?;
 
             match result {
@@ -130,8 +128,7 @@ async fn inner_main() -> Result<(), GeneralError> {
         }
 
         Command::Delete { release_name } => {
-            let client = Client::try_default().await?;
-            let manager = release::manager::Manager::new(client);
+            let manager = release::manager::Manager::new().await?;
             let possible_plan = manager.delete(release_name).await?;
 
             if let Some(plan) = possible_plan {

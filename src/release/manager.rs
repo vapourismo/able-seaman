@@ -40,32 +40,23 @@ pub enum DeployResult {
 #[derive(Clone)]
 pub struct Manager {
     client: kube::Client,
+    config_maps: kube::Api<ConfigMap>,
 }
 
 impl Manager {
-    pub fn new(client: kube::Client) -> Self {
-        Manager { client }
-    }
+    pub async fn new() -> Result<Self, Error> {
+        let client = kube::Client::try_default().await?;
+        let config_maps = kube::Api::default_namespaced(client.clone());
 
-    pub async fn get_release_state(&self, name: &str) -> Result<Option<ReleaseState>, Error> {
-        let api = kube::Api::default_namespaced(self.client.clone());
-
-        match api.get(name).await {
-            Err(kube::Error::Api(kube::error::ErrorResponse {
-                reason, code: 404, ..
-            })) if reason == "NotFound" => Ok(None),
-
-            Err(err) => Err(Error::KubeError(err)),
-
-            Ok(value) => Ok(Some(ReleaseState::from_config_map(&value)?)),
-        }
+        Ok(Manager {
+            client,
+            config_maps,
+        })
     }
 
     pub async fn deploy(&self, release: &release::Release) -> Result<DeployResult, Error> {
-        let config_maps = kube::Api::default_namespaced(self.client.clone());
-        let lock = release.lock(&config_maps).await?;
-
-        let state = self.get_release_state(release.info.name.as_str()).await?;
+        let lock = release.lock(&self.config_maps).await?;
+        let state = ReleaseState::get(&self.config_maps, release.info.name.as_str()).await?;
 
         let result = match state {
             None => {
@@ -84,7 +75,7 @@ impl Manager {
                         })?;
 
                 state
-                    .apply(&config_maps, release.info.name.as_str())
+                    .apply(&self.config_maps, release.info.name.as_str())
                     .await?;
 
                 DeployResult::Installed { plan }
@@ -112,7 +103,7 @@ impl Manager {
                 state.current = release.objects.clone();
 
                 state
-                    .apply(&config_maps, release.info.name.as_str())
+                    .apply(&self.config_maps, release.info.name.as_str())
                     .await?;
 
                 DeployResult::Upgraded { plan }
@@ -124,7 +115,7 @@ impl Manager {
     }
 
     pub async fn delete(&self, name: String) -> Result<Option<plan::ReleasePlan>, Error> {
-        let state = self.get_release_state(name.as_str()).await?;
+        let state = ReleaseState::get(&self.config_maps, name.as_str()).await?;
 
         if let Some(state) = state {
             let mut release = release::Release::new(release::ReleaseInfo { name });
@@ -158,6 +149,7 @@ pub enum ReleaseStateError {
     CorruptReleaseState(ConfigMap),
     JSONError(serde_json::Error),
     UpdateError(transaction::Error),
+    KubeError(kube::Error),
 }
 
 impl From<serde_json::Error> for ReleaseStateError {
@@ -196,6 +188,21 @@ impl ReleaseState {
             .insert("release_state".to_string(), serde_json::to_string(&self)?);
 
         Ok(config_map)
+    }
+
+    pub async fn get(
+        api: &kube::Api<ConfigMap>,
+        name: &str,
+    ) -> Result<Option<Self>, ReleaseStateError> {
+        match api.get(name).await {
+            Err(kube::Error::Api(kube::error::ErrorResponse {
+                reason, code: 404, ..
+            })) if reason == "NotFound" => Ok(None),
+
+            Err(err) => Err(ReleaseStateError::KubeError(err)),
+
+            Ok(value) => Ok(Some(ReleaseState::from_config_map(&value)?)),
+        }
     }
 
     async fn apply(&self, api: &kube::Api<ConfigMap>, name: &str) -> Result<(), ReleaseStateError> {
