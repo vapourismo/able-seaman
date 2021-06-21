@@ -18,7 +18,7 @@ where
     let mut stream = api
         .watch(
             &api::ListParams::default()
-                .labels(format!("{}=lock", TYPE_LABEL).as_str())
+                .labels(format!("{}={}", TYPE_LABEL, ObjectType::Lock).as_str())
                 .timeout(10),
             "0",
         )

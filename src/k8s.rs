@@ -5,7 +5,7 @@ pub mod transaction;
 use crate::meta::CRATE_VERSION;
 use kube::ResourceExt;
 use serde::Serialize;
-use std::fmt::Debug;
+use std::fmt;
 
 pub const TYPE_LABEL: &str = "able-seaman/type";
 pub const VERSION_LABEL: &str = "able-seaman/version";
@@ -17,14 +17,13 @@ pub enum ObjectType {
     Managed,
 }
 
-impl ToString for ObjectType {
-    fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for ObjectType {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        formatter.write_str(match self {
             ObjectType::Lock => "lock",
             ObjectType::ReleaseState => "release-state",
             ObjectType::Managed => "managed",
-        }
-        .to_string()
+        })
     }
 }
 
