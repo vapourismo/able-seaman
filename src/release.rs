@@ -93,7 +93,7 @@ impl Release {
     }
 
     pub fn add_objects_from_path(&mut self, input: &Path) -> Result<(), BuildError> {
-        for file in fs::list_contents(input)? {
+        for file in fs::list_files(input)? {
             let file = File::open(file.as_path())?;
             self.add_objects(file)?;
         }
