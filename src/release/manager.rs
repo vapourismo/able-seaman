@@ -80,7 +80,7 @@ impl Manager {
 
     pub async fn deploy(&self, release: &release::Release) -> Result<DeployResult, Error> {
         let lock = release.lock(&self.config_maps).await?;
-        let state = ReleaseState::get(&self.config_maps, release.info.name.as_str()).await?;
+        let state = ReleaseState::get(&self.config_maps, release.name.as_str()).await?;
 
         let result = match state {
             None => {
@@ -99,7 +99,7 @@ impl Manager {
                         })?;
 
                 state
-                    .apply(&self.config_maps, release.info.name.as_str())
+                    .apply(&self.config_maps, release.name.as_str())
                     .await?;
 
                 DeployResult::Installed { plan }
@@ -107,7 +107,7 @@ impl Manager {
 
             Some(mut state) => {
                 let old_release = release::Release {
-                    info: release.info.clone(),
+                    name: release.name.clone(),
                     objects: state.current.clone(),
                 };
 
@@ -127,7 +127,7 @@ impl Manager {
                 state.current = release.objects.clone();
 
                 state
-                    .apply(&self.config_maps, release.info.name.as_str())
+                    .apply(&self.config_maps, release.name.as_str())
                     .await?;
 
                 DeployResult::Upgraded { plan }
@@ -142,7 +142,7 @@ impl Manager {
         let state = ReleaseState::get(&self.config_maps, name.as_str()).await?;
 
         if let Some(state) = state {
-            let mut release = release::Release::new(release::ReleaseInfo { name });
+            let mut release = release::Release::new(name);
             release.objects = state.current.clone();
 
             let (client, plan) = release
@@ -155,11 +155,8 @@ impl Manager {
 
             let api: kube::Api<ConfigMap> = kube::Api::default_namespaced(client);
 
-            api.delete(
-                release.info.name.as_str(),
-                &kube::api::DeleteParams::default(),
-            )
-            .await?;
+            api.delete(release.name.as_str(), &kube::api::DeleteParams::default())
+                .await?;
 
             Ok(Some(plan))
         } else {

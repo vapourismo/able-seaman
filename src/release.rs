@@ -17,11 +17,6 @@ use std::hash::Hasher;
 use std::io;
 use std::path::Path;
 
-#[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
-pub struct ReleaseInfo {
-    pub name: String,
-}
-
 #[derive(Debug)]
 pub enum Error {
     RollbackError {
@@ -56,16 +51,16 @@ impl From<io::Error> for BuildError {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release {
-    info: ReleaseInfo,
+    name: String,
     pub(crate) objects: Objects,
 }
 
 pub type Objects = BTreeMap<String, DynamicObject>;
 
 impl Release {
-    pub fn new(info: ReleaseInfo) -> Self {
+    pub fn new(name: String) -> Self {
         Release {
-            info,
+            name,
             objects: BTreeMap::new(),
         }
     }
@@ -75,7 +70,7 @@ impl Release {
         &self,
         api: &'a kube::Api<ConfigMap>,
     ) -> Result<Lock<'a, ConfigMap>, kube::Error> {
-        Lock::new(api, format!("{}-lock", self.info.name)).await
+        Lock::new(api, format!("{}-lock", self.name)).await
     }
 
     pub fn add_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuildError>
@@ -146,7 +141,7 @@ impl Hash for Release {
     where
         SomeHasher: std::hash::Hasher,
     {
-        self.info.hash(hasher);
+        self.name.hash(hasher);
 
         for (name, object) in &self.objects {
             name.hash(hasher);

@@ -100,7 +100,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
+            let mut release = release::Release::new(release_name);
             ingest_from_file_args(&mut release, input_files)?;
 
             println!("{}", serde_json::to_string_pretty(&release)?);
@@ -110,7 +110,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let mut release = release::Release::new(release::ReleaseInfo { name: release_name });
+            let mut release = release::Release::new(release_name);
             ingest_from_file_args(&mut release, input_files)?;
 
             let ns_mode = release::manager::NamespaceMode::new(options.namespace);
