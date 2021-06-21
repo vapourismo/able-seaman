@@ -1,4 +1,5 @@
 mod k8s;
+mod manager;
 mod meta;
 mod release;
 mod utils;
@@ -111,21 +112,21 @@ async fn inner_main() -> Result<(), GeneralError> {
         } => {
             let release = ingest_from_file_args(input_files)?.finish(release_name);
 
-            let ns_mode = release::manager::NamespaceMode::new(options.namespace);
-            let manager = release::manager::Manager::new(ns_mode).await?;
+            let ns_mode = manager::NamespaceMode::new(options.namespace);
+            let manager = manager::Manager::new(ns_mode).await?;
             let result = manager.deploy(&release).await?;
 
             match result {
-                release::manager::DeployResult::Unchanged => {
+                manager::DeployResult::Unchanged => {
                     println!("Release is unchanged.");
                 }
 
-                release::manager::DeployResult::Installed { plan } => {
+                manager::DeployResult::Installed { plan } => {
                     println!("Release was installed.");
                     print_pretty_release_plan(&plan);
                 }
 
-                release::manager::DeployResult::Upgraded { plan } => {
+                manager::DeployResult::Upgraded { plan } => {
                     println!("Release was upgraded.");
                     print_pretty_release_plan(&plan);
                 }
@@ -133,8 +134,8 @@ async fn inner_main() -> Result<(), GeneralError> {
         }
 
         Command::Delete { release_name } => {
-            let ns_mode = release::manager::NamespaceMode::new(options.namespace);
-            let manager = release::manager::Manager::new(ns_mode).await?;
+            let ns_mode = manager::NamespaceMode::new(options.namespace);
+            let manager = manager::Manager::new(ns_mode).await?;
             let possible_plan = manager.delete(release_name).await?;
 
             if let Some(plan) = possible_plan {
@@ -161,7 +162,7 @@ pub enum GeneralError {
     JSONError(serde_json::Error),
     ReleaseError(Box<release::Error>),
     BuildError(release::BuildError),
-    ManagerError(release::manager::Error),
+    ManagerError(manager::Error),
 }
 
 impl From<std::io::Error> for GeneralError {
@@ -200,8 +201,8 @@ impl From<release::BuildError> for GeneralError {
     }
 }
 
-impl From<release::manager::Error> for GeneralError {
-    fn from(error: release::manager::Error) -> GeneralError {
+impl From<manager::Error> for GeneralError {
+    fn from(error: manager::Error) -> GeneralError {
         GeneralError::ManagerError(error)
     }
 }

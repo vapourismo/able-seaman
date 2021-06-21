@@ -79,13 +79,14 @@ impl Manager {
     }
 
     pub async fn deploy(&self, release: &release::Release) -> Result<DeployResult, Error> {
+        let name = release.name();
         let lock = release.lock(&self.config_maps).await?;
-        let state = ReleaseState::get(&self.config_maps, release.name.as_str()).await?;
+        let state = ReleaseState::get(&self.config_maps, name.as_str()).await?;
 
         let result = match state {
             None => {
                 let state = ReleaseState {
-                    current: release.objects.clone(),
+                    current: release.objects().clone(),
                     history: Vec::new(),
                 };
 
@@ -98,18 +99,14 @@ impl Manager {
                             state: state.clone(),
                         })?;
 
-                state
-                    .apply(&self.config_maps, release.name.as_str())
-                    .await?;
+                state.apply(&self.config_maps, name.as_str()).await?;
 
                 DeployResult::Installed { plan }
             }
 
             Some(mut state) => {
-                let old_release = release::Release {
-                    name: release.name.clone(),
-                    objects: state.current.clone(),
-                };
+                let old_release =
+                    release::Release::from_objects(name.clone(), state.current.clone());
 
                 if old_release.hash_value() == release.hash_value() {
                     return Ok(DeployResult::Unchanged);
@@ -124,11 +121,9 @@ impl Manager {
                     })?;
 
                 state.history.insert(0, state.current);
-                state.current = release.objects.clone();
+                state.current = release.objects().clone();
 
-                state
-                    .apply(&self.config_maps, release.name.as_str())
-                    .await?;
+                state.apply(&self.config_maps, name.as_str()).await?;
 
                 DeployResult::Upgraded { plan }
             }
@@ -154,7 +149,7 @@ impl Manager {
 
             let api: kube::Api<ConfigMap> = kube::Api::default_namespaced(client);
 
-            api.delete(release.name.as_str(), &kube::api::DeleteParams::default())
+            api.delete(release.name(), &kube::api::DeleteParams::default())
                 .await?;
 
             Ok(Some(plan))

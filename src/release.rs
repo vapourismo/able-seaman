@@ -1,4 +1,3 @@
-pub mod manager;
 pub mod plan;
 pub mod rollback;
 
@@ -147,6 +146,14 @@ impl Release {
         let mut hasher = hash_map::DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn objects(&self) -> &Objects {
+        &self.objects
     }
 }
 
