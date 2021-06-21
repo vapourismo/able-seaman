@@ -51,12 +51,12 @@ struct Options {
 fn ingest_from_file_args<F: IntoIterator<Item = String>>(
     release: &mut release::Release,
     files: F,
-) -> Result<(), release::IngestError> {
+) -> Result<(), release::BuildError> {
     for ref file in files {
         if file == "-" {
-            release.ingest_objects(io::stdin())?;
+            release.add_objects(io::stdin())?;
         } else {
-            release.ingest_objects_from_path(Path::new(file))?;
+            release.add_objects_from_path(Path::new(file))?;
         }
     }
 
@@ -162,7 +162,7 @@ pub enum GeneralError {
     YAMLError(serde_yaml::Error),
     JSONError(serde_json::Error),
     ReleaseError(Box<release::Error>),
-    IngestError(release::IngestError),
+    BuildError(release::BuildError),
     ManagerError(release::manager::Error),
 }
 
@@ -196,9 +196,9 @@ impl From<release::Error> for GeneralError {
     }
 }
 
-impl From<release::IngestError> for GeneralError {
-    fn from(error: release::IngestError) -> GeneralError {
-        GeneralError::IngestError(error)
+impl From<release::BuildError> for GeneralError {
+    fn from(error: release::BuildError) -> GeneralError {
+        GeneralError::BuildError(error)
     }
 }
 

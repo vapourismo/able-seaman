@@ -35,22 +35,22 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub enum IngestError {
+pub enum BuildError {
     DuplicateObject(String),
     ObjectWithoutName(Box<DynamicObject>),
     IOError(io::Error),
     YAMLError(serde_yaml::Error),
 }
 
-impl From<serde_yaml::Error> for IngestError {
-    fn from(error: serde_yaml::Error) -> IngestError {
-        IngestError::YAMLError(error)
+impl From<serde_yaml::Error> for BuildError {
+    fn from(error: serde_yaml::Error) -> BuildError {
+        BuildError::YAMLError(error)
     }
 }
 
-impl From<io::Error> for IngestError {
-    fn from(error: io::Error) -> IngestError {
-        IngestError::IOError(error)
+impl From<io::Error> for BuildError {
+    fn from(error: io::Error) -> BuildError {
+        BuildError::IOError(error)
     }
 }
 
@@ -78,7 +78,7 @@ impl Release {
         Lock::new(api, format!("{}-lock", self.info.name)).await
     }
 
-    pub fn ingest_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), IngestError>
+    pub fn add_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuildError>
     where
         SomeRead: io::Read,
     {
@@ -87,20 +87,20 @@ impl Release {
 
             if let Some(name) = object.metadata.name.clone() {
                 if let Some(_old_object) = self.objects.insert(name.clone(), object) {
-                    return Err(IngestError::DuplicateObject(name));
+                    return Err(BuildError::DuplicateObject(name));
                 }
             } else {
-                return Err(IngestError::ObjectWithoutName(Box::new(object)));
+                return Err(BuildError::ObjectWithoutName(Box::new(object)));
             }
         }
 
         Ok(())
     }
 
-    pub fn ingest_objects_from_path(&mut self, input: &Path) -> Result<(), IngestError> {
-        for file in list_contents(input)? {
+    pub fn add_objects_from_path(&mut self, input: &Path) -> Result<(), BuildError> {
+        for file in fs::list_contents(input)? {
             let file = File::open(file.as_path())?;
-            self.ingest_objects(file)?;
+            self.add_objects(file)?;
         }
 
         Ok(())
