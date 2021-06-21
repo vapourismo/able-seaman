@@ -5,6 +5,7 @@ pub mod rollback;
 use crate::k8s::lock::Lock;
 use crate::k8s::transaction;
 use crate::release::plan::ReleasePlan;
+use crate::utils::fs;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 use serde::{Deserialize, Serialize};
@@ -14,31 +15,7 @@ use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::io;
-use std::path::{Path, PathBuf};
-
-fn list_contents_vec(paths: &mut Vec<PathBuf>, path: &Path) -> Result<(), io::Error> {
-    if path.is_dir() {
-        for entry in path.read_dir()? {
-            let dir = entry?.path();
-            list_contents_vec(paths, dir.as_path())?;
-        }
-    } else if path.exists() {
-        paths.push(path.to_path_buf());
-    } else {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            path.as_os_str().to_str().expect("BadPath"),
-        ));
-    }
-
-    Ok(())
-}
-
-fn list_contents(path: &Path) -> Result<Vec<PathBuf>, io::Error> {
-    let mut paths = Vec::new();
-    list_contents_vec(&mut paths, path)?;
-    Ok(paths)
-}
+use std::path::Path;
 
 #[derive(PartialOrd, Ord, PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct ReleaseInfo {

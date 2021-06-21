@@ -1,6 +1,7 @@
 mod k8s;
 mod meta;
 mod release;
+mod utils;
 
 use clap::Clap;
 use kube::Resource;
