@@ -49,18 +49,19 @@ struct Options {
 }
 
 fn ingest_from_file_args<F: IntoIterator<Item = String>>(
-    release: &mut release::Release,
     files: F,
-) -> Result<(), release::BuildError> {
+) -> Result<release::Builder, release::BuildError> {
+    let mut builder = release::Builder::new();
+
     for ref file in files {
         if file == "-" {
-            release.add_objects(io::stdin())?;
+            builder.add_objects(io::stdin())?;
         } else {
-            release.add_objects_from_path(Path::new(file))?;
+            builder.add_objects_from_path(Path::new(file))?;
         }
     }
 
-    Ok(())
+    Ok(builder)
 }
 
 fn print_pretty_release_plan(plan: &release::plan::ReleasePlan) {
@@ -100,9 +101,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let mut release = release::Release::new(release_name);
-            ingest_from_file_args(&mut release, input_files)?;
-
+            let release = ingest_from_file_args(input_files)?.finish(release_name);
             println!("{}", serde_json::to_string_pretty(&release)?);
         }
 
@@ -110,8 +109,7 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let mut release = release::Release::new(release_name);
-            ingest_from_file_args(&mut release, input_files)?;
+            let release = ingest_from_file_args(input_files)?.finish(release_name);
 
             let ns_mode = release::manager::NamespaceMode::new(options.namespace);
             let manager = release::manager::Manager::new(ns_mode).await?;

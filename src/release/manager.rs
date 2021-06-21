@@ -142,8 +142,7 @@ impl Manager {
         let state = ReleaseState::get(&self.config_maps, name.as_str()).await?;
 
         if let Some(state) = state {
-            let mut release = release::Release::new(name);
-            release.objects = state.current.clone();
+            let release = release::Release::from_objects(name, state.current.clone());
 
             let (client, plan) = release
                 .uninstall(self.client.clone())

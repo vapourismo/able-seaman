@@ -18,18 +18,6 @@ use std::io;
 use std::path::Path;
 
 #[derive(Debug)]
-pub enum Error {
-    RollbackError {
-        error: rollback::Error,
-        cause: transaction::Error,
-    },
-
-    ReleaseError {
-        error: transaction::Error,
-    },
-}
-
-#[derive(Debug)]
 pub enum BuildError {
     DuplicateObject(String),
     ObjectWithoutName(Box<DynamicObject>),
@@ -49,28 +37,16 @@ impl From<io::Error> for BuildError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Release {
-    name: String,
-    pub(crate) objects: Objects,
+#[derive(Debug)]
+pub struct Builder {
+    objects: Objects,
 }
 
-pub type Objects = BTreeMap<String, DynamicObject>;
-
-impl Release {
-    pub fn new(name: String) -> Self {
-        Release {
-            name,
+impl Builder {
+    pub fn new() -> Self {
+        Builder {
             objects: BTreeMap::new(),
         }
-    }
-
-    #[allow(clippy::needless_lifetimes)]
-    pub async fn lock<'a>(
-        &self,
-        api: &'a kube::Api<ConfigMap>,
-    ) -> Result<Lock<'a, ConfigMap>, kube::Error> {
-        Lock::new(api, format!("{}-lock", self.name)).await
     }
 
     pub fn add_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuildError>
@@ -81,7 +57,7 @@ impl Release {
             let object = DynamicObject::deserialize(document)?;
 
             if let Some(name) = object.metadata.name.clone() {
-                if let Some(_old_object) = self.objects.insert(name.clone(), object) {
+                if self.objects.insert(name.clone(), object).is_some() {
                     return Err(BuildError::DuplicateObject(name));
                 }
             } else {
@@ -99,6 +75,44 @@ impl Release {
         }
 
         Ok(())
+    }
+
+    pub fn finish(self, name: String) -> Release {
+        Release::from_objects(name, self.objects)
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    RollbackError {
+        error: rollback::Error,
+        cause: transaction::Error,
+    },
+
+    ReleaseError {
+        error: transaction::Error,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Release {
+    name: String,
+    objects: Objects,
+}
+
+pub type Objects = BTreeMap<String, DynamicObject>;
+
+impl Release {
+    pub fn from_objects(name: String, objects: Objects) -> Self {
+        Release { name, objects }
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    pub async fn lock<'a>(
+        &self,
+        api: &'a kube::Api<ConfigMap>,
+    ) -> Result<Lock<'a, ConfigMap>, kube::Error> {
+        Lock::new(api, format!("{}-lock", self.name)).await
     }
 
     pub async fn upgrade(
