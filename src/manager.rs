@@ -1,6 +1,6 @@
+use crate::k8s;
+use crate::k8s::api_resource;
 use crate::k8s::transaction;
-use crate::k8s::ObjectType;
-use crate::k8s::TaggableObject;
 use crate::release;
 use crate::release::plan;
 use k8s_openapi::api::core::v1::ConfigMap;
@@ -156,6 +156,32 @@ impl Manager {
             Ok(None)
         }
     }
+
+    pub async fn verify(&self, _name: String) -> Result<(), kube::Error> {
+        let mut client = self.client.clone();
+        let all_resources = api_resource::find_api_resources(&client).await?;
+
+        for resource in all_resources {
+            let api: kube::Api<kube::core::DynamicObject> = kube::Api::all_with(client, &resource);
+
+            let items = api
+                .list(
+                    &k8s::Labels::new()
+                        .add(k8s::TypeLabel::Managed)
+                        .to_listparams(),
+                )
+                .await?
+                .items;
+
+            items.iter().for_each(|item| {
+                dbg!(item);
+            });
+
+            client = api.into_client();
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -191,7 +217,9 @@ impl ReleaseState {
 
     fn to_config_map(&self) -> Result<ConfigMap, ReleaseStateError> {
         let mut config_map = ConfigMap::default();
-        config_map.tag(ObjectType::ReleaseState);
+        k8s::Labels::new()
+            .add(k8s::TypeLabel::ReleaseState)
+            .apply_to(&mut config_map);
 
         config_map
             .data

@@ -1,6 +1,6 @@
+use crate::k8s;
 use crate::k8s::transaction;
-use crate::k8s::ObjectType;
-use crate::k8s::TaggableObject;
+use crate::k8s::WithLabels;
 use crate::release;
 use crate::release::rollback;
 use async_trait::async_trait;
@@ -50,12 +50,14 @@ pub struct ReleasePlan {
 
 impl ReleasePlan {
     pub fn new(new_objects: &release::Objects, old_objects: &release::Objects) -> Self {
+        let managed_labels = k8s::Labels::new().add(k8s::TypeLabel::Managed);
+
         // Find things to create.
         let creations = new_objects
             .iter()
             .filter(|(key, _)| !old_objects.contains_key(*key))
             .map(|(_, new)| Create {
-                new: new.to_tagged(ObjectType::Managed),
+                new: new.clone().with_labels(&managed_labels),
             })
             .collect();
 
@@ -63,9 +65,9 @@ impl ReleasePlan {
         let upgrades = new_objects
             .iter()
             .filter_map(|(key, new)| {
-                old_objects.get(key).map(|current| Upgrade {
-                    new: new.to_tagged(ObjectType::Managed),
-                    old: current.to_tagged(ObjectType::Managed),
+                old_objects.get(key).map(|old| Upgrade {
+                    new: new.clone().with_labels(&managed_labels),
+                    old: old.clone().with_labels(&managed_labels),
                 })
             })
             .collect();
@@ -74,8 +76,8 @@ impl ReleasePlan {
         let deletions = old_objects
             .iter()
             .filter(|(key, _)| !new_objects.contains_key(*key))
-            .map(|(_, value)| Delete {
-                old: value.to_tagged(ObjectType::Managed),
+            .map(|(_, old)| Delete {
+                old: old.clone().with_labels(&managed_labels),
             })
             .collect();
 

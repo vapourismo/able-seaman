@@ -38,6 +38,12 @@ enum Command {
         #[clap(about = "Identifier of the release")]
         release_name: String,
     },
+
+    #[clap(about = "Verify a release.")]
+    Verify {
+        #[clap(about = "Identifier of the release")]
+        release_name: String,
+    },
 }
 
 #[derive(Clap, Clone, Debug)]
@@ -141,6 +147,12 @@ async fn inner_main() -> Result<(), GeneralError> {
             if let Some(plan) = possible_plan {
                 print_pretty_release_plan(&plan);
             }
+        }
+
+        Command::Verify { release_name } => {
+            let ns_mode = manager::NamespaceMode::new(options.namespace);
+            let manager = manager::Manager::new(ns_mode).await?;
+            manager.verify(release_name).await?;
         }
     }
 
