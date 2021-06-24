@@ -5,7 +5,6 @@ use crate::release;
 use crate::release::plan;
 use k8s_openapi::api::core::v1::ConfigMap;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::str;
 
@@ -65,7 +64,7 @@ impl Manager {
         match ns_mode {
             NamespaceMode::Default => {}
             NamespaceMode::Specific(ns) => {
-                config.default_ns = ns;
+                config.default_namespace = ns;
             }
         }
 
@@ -181,10 +180,7 @@ pub struct ReleaseState {
 
 impl ReleaseState {
     fn from_config_map(config_map: &ConfigMap) -> Result<Self, ReleaseStateError> {
-        let release_state = config_map
-            .data
-            .as_ref()
-            .and_then(|data| data.get("release_state"));
+        let release_state = config_map.data.get("release_state");
 
         if let Some(data) = release_state {
             Ok(serde_json::from_str(data.as_str())?)
@@ -199,7 +195,6 @@ impl ReleaseState {
 
         config_map
             .data
-            .get_or_insert(BTreeMap::new())
             .insert("release_state".to_string(), serde_json::to_string(&self)?);
 
         Ok(config_map)
