@@ -1,5 +1,7 @@
 use crate::k8s;
+use crate::k8s::annotations::WithAnnotations;
 use crate::k8s::labels;
+use crate::k8s::labels::WithLabels;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use kube::api;
@@ -16,8 +18,7 @@ where
 {
     let mut stream = api
         .watch(
-            &labels::Labels::new()
-                .add(k8s::ObjectType::Lock)
+            &labels::Labels::from(k8s::ObjectType::Lock)
                 .to_listparams()
                 .timeout(10),
             "0",
@@ -61,9 +62,9 @@ where
         mut lock_value: T,
     ) -> Result<Lock<'a, T>, kube::Error> {
         lock_value.meta_mut().name = Some(name.clone());
-        labels::Labels::new()
-            .add(k8s::ObjectType::Lock)
-            .apply_to(&mut lock_value);
+        lock_value = lock_value
+            .with_label(&k8s::ObjectType::Lock)
+            .with_annotation(&k8s::CrateVersion);
 
         let _locked_value = loop {
             match api.create(&api::PostParams::default(), &lock_value).await {

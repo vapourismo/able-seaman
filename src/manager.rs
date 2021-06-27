@@ -1,6 +1,8 @@
 use crate::k8s;
+use crate::k8s::annotations::WithAnnotations;
 use crate::k8s::api_resource;
 use crate::k8s::labels;
+use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
 use crate::release;
 use crate::release::plan;
@@ -166,11 +168,7 @@ impl Manager {
             let api: kube::Api<kube::core::DynamicObject> = kube::Api::all_with(client, &resource);
 
             let items = api
-                .list(
-                    &labels::Labels::new()
-                        .add(k8s::ObjectType::Managed)
-                        .to_listparams(),
-                )
+                .list(&labels::Labels::from(k8s::ObjectType::Managed).to_listparams())
                 .await?
                 .items;
 
@@ -217,10 +215,9 @@ impl ReleaseState {
     }
 
     fn to_config_map(&self) -> Result<ConfigMap, ReleaseStateError> {
-        let mut config_map = ConfigMap::default();
-        labels::Labels::new()
-            .add(k8s::ObjectType::ReleaseState)
-            .apply_to(&mut config_map);
+        let mut config_map = ConfigMap::default()
+            .with_label(&k8s::ObjectType::ReleaseState)
+            .with_annotation(&k8s::CrateVersion);
 
         config_map
             .data

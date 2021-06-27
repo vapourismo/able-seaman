@@ -1,5 +1,5 @@
 use crate::k8s;
-use crate::k8s::labels;
+use crate::k8s::annotations::WithAnnotations;
 use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
 use crate::release;
@@ -51,14 +51,19 @@ pub struct ReleasePlan {
 
 impl ReleasePlan {
     pub fn new(new_objects: &release::Objects, old_objects: &release::Objects) -> Self {
-        let managed_labels = labels::Labels::new().add(k8s::ObjectType::Managed);
+        let with_meta = |object: &DynamicObject| -> DynamicObject {
+            object
+                .clone()
+                .with_label(&k8s::ObjectType::Managed)
+                .with_annotation(&k8s::CrateVersion)
+        };
 
         // Find things to create.
         let creations = new_objects
             .iter()
             .filter(|(key, _)| !old_objects.contains_key(*key))
             .map(|(_, new)| Create {
-                new: new.clone().with_labels(&managed_labels),
+                new: with_meta(new),
             })
             .collect();
 
@@ -67,8 +72,8 @@ impl ReleasePlan {
             .iter()
             .filter_map(|(key, new)| {
                 old_objects.get(key).map(|old| Upgrade {
-                    new: new.clone().with_labels(&managed_labels),
-                    old: old.clone().with_labels(&managed_labels),
+                    new: with_meta(new),
+                    old: with_meta(old),
                 })
             })
             .collect();
@@ -78,7 +83,7 @@ impl ReleasePlan {
             .iter()
             .filter(|(key, _)| !new_objects.contains_key(*key))
             .map(|(_, old)| Delete {
-                old: old.clone().with_labels(&managed_labels),
+                old: with_meta(old),
             })
             .collect();
 

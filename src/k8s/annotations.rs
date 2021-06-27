@@ -59,11 +59,19 @@ impl<S: ToString> ToAnnotation for (&'static str, S) {
 
 pub trait WithAnnotations {
     fn with_annotations(self, anns: &Annotations) -> Self;
+
+    fn with_annotation<A: ToAnnotation>(self, ann: &A) -> Self;
 }
 
 impl<R: ResourceExt> WithAnnotations for R {
     fn with_annotations(mut self, anns: &Annotations) -> Self {
         anns.apply_to(&mut self);
+        self
+    }
+
+    fn with_annotation<A: ToAnnotation>(mut self, ann: &A) -> Self {
+        let (name, value) = ann.to_annotation();
+        self.annotations_mut().insert(name.to_string(), value);
         self
     }
 }

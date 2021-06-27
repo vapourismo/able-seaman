@@ -77,11 +77,19 @@ impl From<Labels> for kube::api::ListParams {
 
 pub trait WithLabels {
     fn with_labels(self, labels: &Labels) -> Self;
+
+    fn with_label<L: ToLabel>(self, label: &L) -> Self;
 }
 
 impl<R: ResourceExt> WithLabels for R {
     fn with_labels(mut self, labels: &Labels) -> Self {
         labels.apply_to(&mut self);
+        self
+    }
+
+    fn with_label<L: ToLabel>(mut self, label: &L) -> Self {
+        let (name, value) = label.to_label();
+        self.labels_mut().insert(name.to_string(), value);
         self
     }
 }
