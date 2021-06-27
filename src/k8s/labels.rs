@@ -1,34 +1,5 @@
-use crate::meta;
-use const_format::concatcp;
 use kube::ResourceExt;
-use serde::Serialize;
 use std::collections::HashMap;
-use std::fmt;
-
-pub const TYPE_LABEL: &str = concatcp!(meta::CRATE_NAME, "/type");
-
-#[derive(Clone, Copy, Debug, Serialize)]
-pub enum TypeLabel {
-    Lock,
-    ReleaseState,
-    Managed,
-}
-
-impl fmt::Display for TypeLabel {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        formatter.write_str(match self {
-            TypeLabel::Lock => "lock",
-            TypeLabel::ReleaseState => "release-state",
-            TypeLabel::Managed => "managed",
-        })
-    }
-}
-
-impl ToLabel for TypeLabel {
-    fn to_label(&self) -> (&'static str, String) {
-        (TYPE_LABEL, self.to_string())
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Labels {
@@ -82,8 +53,8 @@ impl Default for Labels {
     }
 }
 
-impl<S: ToString> From<(&'static str, S)> for Labels {
-    fn from(source: (&'static str, S)) -> Self {
+impl<L: ToLabel> From<L> for Labels {
+    fn from(source: L) -> Self {
         Self::new().add(source)
     }
 }

@@ -1,3 +1,4 @@
+use crate::k8s;
 use crate::k8s::labels;
 use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
@@ -50,7 +51,7 @@ pub struct ReleasePlan {
 
 impl ReleasePlan {
     pub fn new(new_objects: &release::Objects, old_objects: &release::Objects) -> Self {
-        let managed_labels = labels::Labels::new().add(labels::TypeLabel::Managed);
+        let managed_labels = labels::Labels::new().add(k8s::ObjectType::Managed);
 
         // Find things to create.
         let creations = new_objects
