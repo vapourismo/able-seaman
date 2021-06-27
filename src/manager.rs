@@ -205,13 +205,12 @@ pub struct ReleaseState {
 
 impl ReleaseState {
     fn from_config_map(config_map: &ConfigMap) -> Result<Self, ReleaseStateError> {
-        let release_state = config_map.data.get("release_state");
+        let data = config_map
+            .data
+            .get("release_state")
+            .ok_or_else(|| ReleaseStateError::CorruptReleaseState(config_map.clone()))?;
 
-        if let Some(data) = release_state {
-            Ok(serde_json::from_str(data.as_str())?)
-        } else {
-            Err(ReleaseStateError::CorruptReleaseState(config_map.clone()))
-        }
+        Ok(serde_json::from_str(data.as_str())?)
     }
 
     fn to_config_map(&self) -> Result<ConfigMap, ReleaseStateError> {
