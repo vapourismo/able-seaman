@@ -1,9 +1,11 @@
+use crate::meta;
+use const_format::concatcp;
 use kube::ResourceExt;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt;
 
-pub const TYPE_LABEL: &str = "able-seaman/type";
+pub const TYPE_LABEL: &str = concatcp!(meta::CRATE_NAME, "/type");
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum TypeLabel {
