@@ -51,16 +51,6 @@ impl TryToApiResource for DynamicObject {
     }
 }
 
-struct ApiResourceWrapper(ApiResource);
-
-impl PartialEq<ApiResourceWrapper> for ApiResourceWrapper {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.0 == rhs.0
-    }
-}
-
-impl Eq for ApiResourceWrapper {}
-
 pub async fn find_api_resources(
     client: &kube::Client,
 ) -> Result<HashSet<ApiResource>, kube::Error> {
