@@ -1,6 +1,6 @@
-use crate::k8s;
+use crate::k8s::labels;
+use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
-use crate::k8s::WithLabels;
 use crate::release;
 use crate::release::rollback;
 use async_trait::async_trait;
@@ -50,7 +50,7 @@ pub struct ReleasePlan {
 
 impl ReleasePlan {
     pub fn new(new_objects: &release::Objects, old_objects: &release::Objects) -> Self {
-        let managed_labels = k8s::Labels::new().add(k8s::TypeLabel::Managed);
+        let managed_labels = labels::Labels::new().add(labels::TypeLabel::Managed);
 
         // Find things to create.
         let creations = new_objects

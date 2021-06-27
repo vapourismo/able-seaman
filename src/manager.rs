@@ -1,5 +1,5 @@
-use crate::k8s;
 use crate::k8s::api_resource;
+use crate::k8s::labels;
 use crate::k8s::transaction;
 use crate::release;
 use crate::release::plan;
@@ -166,8 +166,8 @@ impl Manager {
 
             let items = api
                 .list(
-                    &k8s::Labels::new()
-                        .add(k8s::TypeLabel::Managed)
+                    &labels::Labels::new()
+                        .add(labels::TypeLabel::Managed)
                         .to_listparams(),
                 )
                 .await?
@@ -217,8 +217,8 @@ impl ReleaseState {
 
     fn to_config_map(&self) -> Result<ConfigMap, ReleaseStateError> {
         let mut config_map = ConfigMap::default();
-        k8s::Labels::new()
-            .add(k8s::TypeLabel::ReleaseState)
+        labels::Labels::new()
+            .add(labels::TypeLabel::ReleaseState)
             .apply_to(&mut config_map);
 
         config_map
