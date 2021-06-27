@@ -119,7 +119,7 @@ impl Release {
         old: &Self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&self.objects, &old.objects);
+        let plan = ReleasePlan::new(&self.name, &self.objects, &old.objects);
         client = plan.execute(client).await?;
         Ok((client, plan))
     }
@@ -128,7 +128,7 @@ impl Release {
         &self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&self.objects, &BTreeMap::new());
+        let plan = ReleasePlan::new(&self.name, &self.objects, &BTreeMap::new());
         client = plan.execute(client).await?;
         Ok((client, plan))
     }
@@ -137,7 +137,7 @@ impl Release {
         &self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&BTreeMap::new(), &self.objects);
+        let plan = ReleasePlan::new(&self.name, &BTreeMap::new(), &self.objects);
         client = plan.execute(client).await?;
         Ok((client, plan))
     }

@@ -44,3 +44,14 @@ impl labels::ToLabel for ObjectType {
         (TYPE_KEY, self.to_string())
     }
 }
+
+const RELEASE_KEY: &str = concatcp!(meta::CRATE_NAME, "/release");
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ReleaseName(pub String);
+
+impl labels::ToLabel for ReleaseName {
+    fn to_label(&self) -> (&'static str, String) {
+        (RELEASE_KEY, self.0.clone())
+    }
+}
