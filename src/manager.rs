@@ -102,7 +102,16 @@ impl Manager {
                             state: state.clone(),
                         })?;
 
-                state.apply(&self.config_maps, name.as_str()).await?;
+                if let Err(err_cause) = state.apply(&self.config_maps, name.as_str()).await {
+                    plan.undo()
+                        .execute(self.client.clone())
+                        .await
+                        .map_err(|error| Error::ReleaseError {
+                            error: Box::new(error),
+                            state: state.clone(),
+                        })?;
+                    return Err(err_cause.into());
+                }
 
                 DeployResult::Installed { plan }
             }
@@ -126,7 +135,16 @@ impl Manager {
                 state.history.insert(0, state.current);
                 state.current = release.objects().clone();
 
-                state.apply(&self.config_maps, name.as_str()).await?;
+                if let Err(err_cause) = state.apply(&self.config_maps, name.as_str()).await {
+                    plan.undo()
+                        .execute(self.client.clone())
+                        .await
+                        .map_err(|error| Error::ReleaseError {
+                            error: Box::new(error),
+                            state: state.clone(),
+                        })?;
+                    return Err(err_cause.into());
+                }
 
                 DeployResult::Upgraded { plan }
             }

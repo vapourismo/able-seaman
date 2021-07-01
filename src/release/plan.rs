@@ -144,6 +144,33 @@ impl ReleasePlan {
 
         Ok(client)
     }
+
+    pub fn undo(&self) -> Self {
+        ReleasePlan {
+            creations: self
+                .deletions
+                .iter()
+                .map(|del| Create {
+                    new: del.old.clone(),
+                })
+                .collect(),
+            deletions: self
+                .creations
+                .iter()
+                .map(|create| Delete {
+                    old: create.new.clone(),
+                })
+                .collect(),
+            upgrades: self
+                .upgrades
+                .iter()
+                .map(|upgrade| Upgrade {
+                    new: upgrade.old.clone(),
+                    old: upgrade.new.clone(),
+                })
+                .collect(),
+        }
+    }
 }
 
 struct RollbackTriggerResult<T> {
