@@ -2,15 +2,17 @@ pub mod plan;
 pub mod rollback;
 pub mod verify;
 
+use crate::k8s::api_resource;
 use crate::k8s::lock::Lock;
 use crate::k8s::transaction;
 use crate::release::plan::ReleasePlan;
 use crate::utils::fs;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
+use kube::core::GroupVersionKind;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -19,7 +21,7 @@ use std::path::Path;
 
 #[derive(Debug)]
 pub enum BuildError {
-    DuplicateObject(String),
+    DuplicateObject(Identifier),
     ObjectWithoutName(Box<DynamicObject>),
     IOError(io::Error),
     YAMLError(serde_yaml::Error),
@@ -45,7 +47,7 @@ pub struct Builder {
 impl Builder {
     pub fn new() -> Self {
         Builder {
-            objects: BTreeMap::new(),
+            objects: HashMap::new(),
         }
     }
 
@@ -56,9 +58,9 @@ impl Builder {
         for document in serde_yaml::Deserializer::from_reader(input) {
             let object = DynamicObject::deserialize(document)?;
 
-            if let Some(name) = object.metadata.name.clone() {
-                if self.objects.insert(name.clone(), object).is_some() {
-                    return Err(BuildError::DuplicateObject(name));
+            if let Some(identifier) = Identifier::from_resource(&object) {
+                if self.objects.insert(identifier.clone(), object).is_some() {
+                    return Err(BuildError::DuplicateObject(identifier));
                 }
             } else {
                 return Err(BuildError::ObjectWithoutName(Box::new(object)));
@@ -94,13 +96,46 @@ pub enum Error {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Identifier {
+    gvk: GroupVersionKind,
+    name: String,
+}
+
+impl Identifier {
+    pub fn from_resource<R>(object: &R) -> Option<Self>
+    where
+        R: kube::Resource + api_resource::TryToApiResource,
+    {
+        let name = object.meta().name.clone()?;
+        let api_resource = object.try_to_api_resource()?;
+        let gvk = kube::core::GroupVersionKind {
+            group: api_resource.group,
+            kind: api_resource.kind,
+            version: api_resource.version,
+        };
+
+        Some(Identifier { gvk, name })
+    }
+
+    pub fn from_api_resource(name: String, api_resource: &kube::core::ApiResource) -> Option<Self> {
+        let gvk = kube::core::GroupVersionKind {
+            group: api_resource.group.clone(),
+            kind: api_resource.kind.clone(),
+            version: api_resource.version.clone(),
+        };
+
+        Some(Identifier { gvk, name })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Release {
     name: String,
     objects: Objects,
 }
 
-pub type Objects = BTreeMap<String, DynamicObject>;
+pub type Objects = HashMap<Identifier, DynamicObject>;
 
 impl Release {
     pub fn from_objects(name: String, objects: Objects) -> Self {
@@ -129,7 +164,7 @@ impl Release {
         &self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&self.name, &self.objects, &BTreeMap::new());
+        let plan = ReleasePlan::new(&self.name, &self.objects, &HashMap::new());
         client = plan.execute(client).await?;
         Ok((client, plan))
     }
@@ -138,7 +173,7 @@ impl Release {
         &self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&self.name, &BTreeMap::new(), &self.objects);
+        let plan = ReleasePlan::new(&self.name, &HashMap::new(), &self.objects);
         client = plan.execute(client).await?;
         Ok((client, plan))
     }

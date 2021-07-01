@@ -6,7 +6,6 @@ use crate::release;
 use crate::release::plan;
 use crate::release::verify;
 use k8s_openapi::api::core::v1::ConfigMap;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
@@ -89,7 +88,7 @@ impl Manager {
         let result = match state {
             None => {
                 let state = ReleaseState {
-                    current: release.objects().clone(),
+                    current: ReleaseStateObjects(release.objects().clone()),
                     history: Vec::new(),
                 };
 
@@ -118,7 +117,7 @@ impl Manager {
 
             Some(mut state) => {
                 let old_release =
-                    release::Release::from_objects(name.clone(), state.current.clone());
+                    release::Release::from_objects(name.clone(), state.current.0.clone());
 
                 if old_release.hash_value() == release.hash_value() {
                     return Ok(DeployResult::Unchanged);
@@ -133,7 +132,7 @@ impl Manager {
                     })?;
 
                 state.history.insert(0, state.current);
-                state.current = release.objects().clone();
+                state.current = ReleaseStateObjects(release.objects().clone());
 
                 if let Err(err_cause) = state.apply(&self.config_maps, name.as_str()).await {
                     plan.undo()
@@ -158,7 +157,7 @@ impl Manager {
         let state = ReleaseState::get(&self.config_maps, name.as_str()).await?;
 
         if let Some(state) = state {
-            let release = release::Release::from_objects(name, state.current.clone());
+            let release = release::Release::from_objects(name, state.current.0.clone());
 
             let (client, plan) = release
                 .uninstall(self.client.clone())
@@ -187,17 +186,17 @@ impl Manager {
         let real_objects =
             verify::find_release_objects(self.client.clone(), release_name.clone()).await?;
 
-        for (name, desired) in state.current {
+        for (identifier, desired) in state.current.0 {
             let desired = plan::ReleasePlan::tag_object(release_name.clone(), desired);
 
             let reality = real_objects
-                .get(&name)
-                .ok_or_else(|| VerificationError::MissingObject(name.clone()))?;
+                .get(&identifier)
+                .ok_or_else(|| VerificationError::MissingObject(identifier.clone()))?;
 
             if !verify::check_mapping(&desired.metadata.annotations, &reality.metadata.annotations)
             {
                 return Err(VerificationError::MismatchingAnnotations {
-                    name: name.clone(),
+                    identifier: identifier.clone(),
                     desired: desired.metadata.annotations,
                     reality: reality.metadata.annotations.clone(),
                 });
@@ -205,7 +204,7 @@ impl Manager {
 
             if !verify::check_mapping(&desired.metadata.labels, &reality.metadata.labels) {
                 return Err(VerificationError::MismatchingLabels {
-                    name: name.clone(),
+                    identifier: identifier.clone(),
                     desired: desired.metadata.labels,
                     reality: reality.metadata.labels.clone(),
                 });
@@ -224,14 +223,14 @@ pub enum VerificationError {
     ReleaseStateError(ReleaseStateError),
     KubeError(kube::Error),
     NoDeployedRelease,
-    MissingObject(String),
+    MissingObject(release::Identifier),
     MismatchingLabels {
-        name: String,
+        identifier: release::Identifier,
         desired: BTreeMap<String, String>,
         reality: BTreeMap<String, String>,
     },
     MismatchingAnnotations {
-        name: String,
+        identifier: release::Identifier,
         desired: BTreeMap<String, String>,
         reality: BTreeMap<String, String>,
     },
@@ -266,10 +265,51 @@ impl From<serde_json::Error> for ReleaseStateError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
+pub struct ReleaseStateObjects(release::Objects);
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ReleaseStateObject {
+    identifier: release::Identifier,
+    object: kube::core::DynamicObject,
+}
+
+impl serde::Serialize for ReleaseStateObjects {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0
+            .iter()
+            .map(|(identifier, object)| ReleaseStateObject {
+                identifier: identifier.clone(),
+                object: object.clone(),
+            })
+            .collect::<Vec<ReleaseStateObject>>()
+            .serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ReleaseStateObjects {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let interim: Vec<ReleaseStateObject> = Vec::deserialize(deserializer)?;
+
+        Ok(ReleaseStateObjects(
+            interim
+                .into_iter()
+                .map(|object| (object.identifier, object.object))
+                .collect(),
+        ))
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ReleaseState {
-    current: release::Objects,
-    history: Vec<release::Objects>,
+    current: ReleaseStateObjects,
+    history: Vec<ReleaseStateObjects>,
 }
 
 impl ReleaseState {
