@@ -1,13 +1,14 @@
 use crate::k8s;
 use crate::k8s::annotations::WithAnnotations;
-use crate::k8s::api_resource;
-use crate::k8s::labels;
 use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
 use crate::release;
 use crate::release::plan;
+use crate::release::verify;
 use k8s_openapi::api::core::v1::ConfigMap;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::str;
 
@@ -160,26 +161,65 @@ impl Manager {
         }
     }
 
-    pub async fn verify(&self, _name: String) -> Result<(), kube::Error> {
-        let mut client = self.client.clone();
-        let all_resources = api_resource::find_api_resources(&client).await?;
+    pub async fn verify(&self, name: String) -> Result<(), VerificationError> {
+        let state = ReleaseState::get(&self.config_maps, name.as_str())
+            .await?
+            .ok_or(VerificationError::NoDeployedRelease)?;
 
-        for resource in all_resources {
-            let api: kube::Api<kube::core::DynamicObject> = kube::Api::all_with(client, &resource);
+        let real_objects = verify::find_release_objects(self.client.clone(), name).await?;
 
-            let items = api
-                .list(&labels::Labels::from(k8s::ObjectType::Managed).to_listparams())
-                .await?
-                .items;
+        for (name, desired) in &state.current {
+            let reality = real_objects
+                .get(name)
+                .ok_or_else(|| VerificationError::MissingObject(name.clone()))?;
 
-            items.iter().for_each(|item| {
-                dbg!(item);
-            });
+            if desired.metadata.name != reality.metadata.name
+                || !verify::check_mapping(&desired.metadata.labels, &reality.metadata.labels)
+                || !verify::check_mapping(
+                    &desired.metadata.annotations,
+                    &reality.metadata.annotations,
+                )
+            {
+                return Err(VerificationError::MismatchingMetadata {
+                    name: name.clone(),
+                    desired: Box::new(desired.metadata.clone()),
+                    reality: Box::new(reality.metadata.clone()),
+                });
+            }
 
-            client = api.into_client();
+            verify::check_value(&desired.data, &reality.data, VecDeque::new())
+                .map_err(|path| VerificationError::MismatchingData { path })?;
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum VerificationError {
+    ReleaseStateError(ReleaseStateError),
+    KubeError(kube::Error),
+    NoDeployedRelease,
+    MissingObject(String),
+    MismatchingMetadata {
+        name: String,
+        desired: Box<ObjectMeta>,
+        reality: Box<ObjectMeta>,
+    },
+    MismatchingData {
+        path: VecDeque<String>,
+    },
+}
+
+impl From<kube::Error> for VerificationError {
+    fn from(error: kube::Error) -> Self {
+        VerificationError::KubeError(error)
+    }
+}
+
+impl From<ReleaseStateError> for VerificationError {
+    fn from(error: ReleaseStateError) -> Self {
+        VerificationError::ReleaseStateError(error)
     }
 }
 

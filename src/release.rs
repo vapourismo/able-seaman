@@ -1,5 +1,6 @@
 pub mod plan;
 pub mod rollback;
+pub mod verify;
 
 use crate::k8s::lock::Lock;
 use crate::k8s::transaction;

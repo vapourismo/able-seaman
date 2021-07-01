@@ -175,6 +175,7 @@ pub enum GeneralError {
     ReleaseError(Box<release::Error>),
     BuildError(release::BuildError),
     ManagerError(manager::Error),
+    VerificationError(Box<manager::VerificationError>),
 }
 
 impl From<std::io::Error> for GeneralError {
@@ -216,5 +217,11 @@ impl From<release::BuildError> for GeneralError {
 impl From<manager::Error> for GeneralError {
     fn from(error: manager::Error) -> GeneralError {
         GeneralError::ManagerError(error)
+    }
+}
+
+impl From<manager::VerificationError> for GeneralError {
+    fn from(error: manager::VerificationError) -> GeneralError {
+        GeneralError::VerificationError(Box::new(error))
     }
 }
