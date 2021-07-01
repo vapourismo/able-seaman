@@ -11,17 +11,6 @@ use std::path::Path;
 
 #[derive(Clap, Clone, Debug)]
 enum Command {
-    #[clap(about = "Package some objects into a release description.")]
-    Package {
-        #[clap(about = "Identifier of the release")]
-        release_name: String,
-
-        #[clap(
-            about = "Files or entire directories from which the Kubernetes objects should be read from (you can use '-' to read objects from stdin)"
-        )]
-        input_files: Vec<String>,
-    },
-
     #[clap(about = "Deploy a release.")]
     Deploy {
         #[clap(about = "Identifier of the release")]
@@ -104,14 +93,6 @@ async fn inner_main() -> Result<(), GeneralError> {
     let options = Options::parse();
 
     match options.command {
-        Command::Package {
-            release_name,
-            input_files,
-        } => {
-            let release = ingest_from_file_args(input_files)?.finish(release_name);
-            println!("{}", serde_json::to_string_pretty(&release)?);
-        }
-
         Command::Deploy {
             release_name,
             input_files,
