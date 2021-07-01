@@ -180,7 +180,7 @@ impl Manager {
             {
                 return Err(VerificationError::MismatchingAnnotations {
                     name: name.clone(),
-                    desired: desired.metadata.annotations.clone(),
+                    desired: desired.metadata.annotations,
                     reality: reality.metadata.annotations.clone(),
                 });
             }
@@ -188,7 +188,7 @@ impl Manager {
             if !verify::check_mapping(&desired.metadata.labels, &reality.metadata.labels) {
                 return Err(VerificationError::MismatchingLabels {
                     name: name.clone(),
-                    desired: desired.metadata.labels.clone(),
+                    desired: desired.metadata.labels,
                     reality: reality.metadata.labels.clone(),
                 });
             }
