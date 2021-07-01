@@ -6,8 +6,8 @@ use crate::release;
 use crate::release::plan;
 use crate::release::verify;
 use k8s_openapi::api::core::v1::ConfigMap;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::str;
@@ -161,29 +161,35 @@ impl Manager {
         }
     }
 
-    pub async fn verify(&self, name: String) -> Result<(), VerificationError> {
-        let state = ReleaseState::get(&self.config_maps, name.as_str())
+    pub async fn verify(&self, release_name: String) -> Result<(), VerificationError> {
+        let state = ReleaseState::get(&self.config_maps, release_name.as_str())
             .await?
             .ok_or(VerificationError::NoDeployedRelease)?;
 
-        let real_objects = verify::find_release_objects(self.client.clone(), name).await?;
+        let real_objects =
+            verify::find_release_objects(self.client.clone(), release_name.clone()).await?;
 
-        for (name, desired) in &state.current {
+        for (name, desired) in state.current {
+            let desired = plan::ReleasePlan::tag_object(release_name.clone(), desired);
+
             let reality = real_objects
-                .get(name)
+                .get(&name)
                 .ok_or_else(|| VerificationError::MissingObject(name.clone()))?;
 
-            if desired.metadata.name != reality.metadata.name
-                || !verify::check_mapping(&desired.metadata.labels, &reality.metadata.labels)
-                || !verify::check_mapping(
-                    &desired.metadata.annotations,
-                    &reality.metadata.annotations,
-                )
+            if !verify::check_mapping(&desired.metadata.annotations, &reality.metadata.annotations)
             {
-                return Err(VerificationError::MismatchingMetadata {
+                return Err(VerificationError::MismatchingAnnotations {
                     name: name.clone(),
-                    desired: Box::new(desired.metadata.clone()),
-                    reality: Box::new(reality.metadata.clone()),
+                    desired: desired.metadata.annotations.clone(),
+                    reality: reality.metadata.annotations.clone(),
+                });
+            }
+
+            if !verify::check_mapping(&desired.metadata.labels, &reality.metadata.labels) {
+                return Err(VerificationError::MismatchingLabels {
+                    name: name.clone(),
+                    desired: desired.metadata.labels.clone(),
+                    reality: reality.metadata.labels.clone(),
                 });
             }
 
@@ -201,10 +207,15 @@ pub enum VerificationError {
     KubeError(kube::Error),
     NoDeployedRelease,
     MissingObject(String),
-    MismatchingMetadata {
+    MismatchingLabels {
         name: String,
-        desired: Box<ObjectMeta>,
-        reality: Box<ObjectMeta>,
+        desired: BTreeMap<String, String>,
+        reality: BTreeMap<String, String>,
+    },
+    MismatchingAnnotations {
+        name: String,
+        desired: BTreeMap<String, String>,
+        reality: BTreeMap<String, String>,
     },
     MismatchingData {
         path: VecDeque<String>,

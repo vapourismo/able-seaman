@@ -50,17 +50,20 @@ pub struct ReleasePlan {
 }
 
 impl ReleasePlan {
+    pub fn tag_object(release_name: String, object: DynamicObject) -> DynamicObject {
+        object
+            .with_label(&k8s::ObjectType::Managed)
+            .with_label(&k8s::ReleaseName(release_name))
+            .with_annotation(&k8s::CrateVersion)
+    }
+
     pub fn new(
         release_name: &str,
         new_objects: &release::Objects,
         old_objects: &release::Objects,
     ) -> Self {
         let with_meta = |object: &DynamicObject| -> DynamicObject {
-            object
-                .clone()
-                .with_label(&k8s::ObjectType::Managed)
-                .with_label(&k8s::ReleaseName(release_name.to_string()))
-                .with_annotation(&k8s::CrateVersion)
+            Self::tag_object(release_name.to_string(), object.clone())
         };
 
         // Find things to create.
