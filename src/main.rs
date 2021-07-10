@@ -1,3 +1,4 @@
+mod identifier;
 mod k8s;
 mod manager;
 mod meta;

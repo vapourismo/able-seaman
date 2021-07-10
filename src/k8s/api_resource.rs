@@ -33,13 +33,7 @@ pub trait TryToApiResource {
     fn try_to_api_resource(&self) -> Option<ApiResource>;
 }
 
-impl TryToApiResource for ApiResource {
-    fn try_to_api_resource(&self) -> Option<ApiResource> {
-        Some(self.to_api_resource())
-    }
-}
-
-impl TryToApiResource for TypeMeta {
+impl<T: ToApiResource> TryToApiResource for T {
     fn try_to_api_resource(&self) -> Option<ApiResource> {
         Some(self.to_api_resource())
     }

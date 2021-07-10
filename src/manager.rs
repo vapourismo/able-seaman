@@ -1,3 +1,4 @@
+use crate::identifier::Identifier;
 use crate::k8s;
 use crate::k8s::annotations::WithAnnotations;
 use crate::k8s::labels::WithLabels;
@@ -223,14 +224,14 @@ pub enum VerificationError {
     ReleaseStateError(ReleaseStateError),
     KubeError(kube::Error),
     NoDeployedRelease,
-    MissingObject(release::Identifier),
+    MissingObject(Identifier),
     MismatchingLabels {
-        identifier: release::Identifier,
+        identifier: Identifier,
         desired: BTreeMap<String, String>,
         reality: BTreeMap<String, String>,
     },
     MismatchingAnnotations {
-        identifier: release::Identifier,
+        identifier: Identifier,
         desired: BTreeMap<String, String>,
         reality: BTreeMap<String, String>,
     },
@@ -270,7 +271,7 @@ pub struct ReleaseStateObjects(release::Objects);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct ReleaseStateObject {
-    identifier: release::Identifier,
+    identifier: Identifier,
     object: kube::core::DynamicObject,
 }
 
