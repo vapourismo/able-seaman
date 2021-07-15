@@ -24,11 +24,9 @@ struct SerDeApiResource {
 }
 
 /// A deployable object
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Object {
-    #[serde(with = "SerDeApiResource")]
     pub api_resource: ApiResource,
-
     pub dyn_object: DynamicObject,
 }
 
@@ -87,6 +85,25 @@ impl kube::Resource for Object {
 
     fn meta_mut(&mut self) -> &mut kube::core::ObjectMeta {
         self.dyn_object.meta_mut()
+    }
+}
+
+impl Serialize for Object {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.dyn_object.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Object {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        DynamicObject::deserialize(deserializer)
+            .and_then(|dyn_object| Object::try_from(dyn_object).map_err(serde::de::Error::custom))
     }
 }
 
