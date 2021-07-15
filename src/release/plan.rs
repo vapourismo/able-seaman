@@ -2,42 +2,42 @@ use crate::k8s;
 use crate::k8s::annotations::WithAnnotations;
 use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
+use crate::objects::Object;
 use crate::release;
 use crate::release::rollback;
 use async_trait::async_trait;
-use kube::core::DynamicObject;
 use kube::Client;
 
 #[derive(Clone, Debug)]
 pub struct Create {
-    pub(crate) new: DynamicObject,
+    pub(crate) new: Object,
 }
 
 impl rollback::Rollbackable for Create {
-    fn to_rollback(&self) -> (transaction::Action, &DynamicObject) {
+    fn to_rollback(&self) -> (transaction::Action, &Object) {
         (transaction::Action::Delete, &self.new)
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Upgrade {
-    pub(crate) new: DynamicObject,
-    pub(crate) old: DynamicObject,
+    pub(crate) new: Object,
+    pub(crate) old: Object,
 }
 
 impl rollback::Rollbackable for Upgrade {
-    fn to_rollback(&self) -> (transaction::Action, &DynamicObject) {
+    fn to_rollback(&self) -> (transaction::Action, &Object) {
         (transaction::Action::Apply, &self.old)
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Delete {
-    pub(crate) old: DynamicObject,
+    pub(crate) old: Object,
 }
 
 impl rollback::Rollbackable for Delete {
-    fn to_rollback(&self) -> (transaction::Action, &DynamicObject) {
+    fn to_rollback(&self) -> (transaction::Action, &Object) {
         (transaction::Action::Create, &self.old)
     }
 }
@@ -50,7 +50,7 @@ pub struct ReleasePlan {
 }
 
 impl ReleasePlan {
-    pub fn tag_object(release_name: String, object: DynamicObject) -> DynamicObject {
+    pub fn tag_object<O: WithLabels + WithAnnotations>(release_name: String, object: O) -> O {
         object
             .with_label(&k8s::ObjectType::Managed)
             .with_label(&k8s::ReleaseName(release_name))
@@ -62,14 +62,14 @@ impl ReleasePlan {
         new_objects: &release::Objects,
         old_objects: &release::Objects,
     ) -> Self {
-        let with_meta = |object: &DynamicObject| -> DynamicObject {
+        let with_meta = |object: &Object| -> Object {
             Self::tag_object(release_name.to_string(), object.clone())
         };
 
         // Find things to create.
         let creations = new_objects
             .iter()
-            .filter(|(key, _)| !old_objects.contains_key(*key))
+            .filter(|(key, _)| !old_objects.contains(*key))
             .map(|(_, new)| Create {
                 new: with_meta(new),
             })
@@ -89,7 +89,7 @@ impl ReleasePlan {
         // Find things to delete.
         let deletions = old_objects
             .iter()
-            .filter(|(key, _)| !new_objects.contains_key(*key))
+            .filter(|(key, _)| !new_objects.contains(*key))
             .map(|(_, old)| Delete {
                 old: with_meta(old),
             })
@@ -107,7 +107,7 @@ impl ReleasePlan {
         let mut rollback_client = client.clone();
 
         for creation in &self.creations {
-            let result = transaction::create_dynamic(client, &creation.new)
+            let result = transaction::create_object(client, &creation.new)
                 .await
                 .on_err_rollback(rollback_client, &rollback_plan)
                 .await?;
@@ -119,7 +119,7 @@ impl ReleasePlan {
         }
 
         for upgrade in &self.upgrades {
-            let result = transaction::apply_dynamic(client, &upgrade.new)
+            let result = transaction::apply_object(client, &upgrade.new)
                 .await
                 .on_err_rollback(rollback_client, &rollback_plan)
                 .await?;
@@ -131,7 +131,7 @@ impl ReleasePlan {
         }
 
         for deletion in &self.deletions {
-            let result = transaction::delete_dynamic(client, &deletion.old)
+            let result = transaction::delete_object(client, &deletion.old)
                 .await
                 .on_err_rollback(rollback_client, &rollback_plan)
                 .await?;

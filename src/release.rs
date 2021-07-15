@@ -5,13 +5,15 @@ pub mod verify;
 use crate::identifier::Identifier;
 use crate::k8s::lock::Lock;
 use crate::k8s::transaction;
+use crate::objects::Object;
+use crate::objects::Objects;
 use crate::release::plan::ReleasePlan;
 use crate::utils::fs;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::core::DynamicObject;
 use serde::Deserialize;
 use std::collections::hash_map;
-use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -21,7 +23,8 @@ use std::path::Path;
 #[derive(Debug)]
 pub enum BuildError {
     DuplicateObject(Identifier),
-    ObjectWithoutName(Box<DynamicObject>),
+    ObjectWithoutName(Box<Object>),
+    BadDynamicObject(String),
     IOError(io::Error),
     YAMLError(serde_yaml::Error),
 }
@@ -46,7 +49,7 @@ pub struct Builder {
 impl Builder {
     pub fn new() -> Self {
         Builder {
-            objects: HashMap::new(),
+            objects: Objects::new(),
         }
     }
 
@@ -56,13 +59,16 @@ impl Builder {
     {
         for document in serde_yaml::Deserializer::from_reader(input) {
             let object = DynamicObject::deserialize(document)?;
+            let object = Object::try_from(object).map_err(BuildError::BadDynamicObject)?;
 
-            if let Some(identifier) = Identifier::from_resource(&object) {
-                if self.objects.insert(identifier.clone(), object).is_some() {
-                    return Err(BuildError::DuplicateObject(identifier));
-                }
-            } else {
-                return Err(BuildError::ObjectWithoutName(Box::new(object)));
+            let name = object
+                .name()
+                .ok_or_else(|| BuildError::ObjectWithoutName(Box::new(object.clone())))?
+                .clone();
+            let identifier = Identifier::from_api_resource(name, &object.api_resource);
+
+            if self.objects.insert(identifier.clone(), object).is_some() {
+                return Err(BuildError::DuplicateObject(identifier));
             }
         }
 
@@ -101,8 +107,6 @@ pub struct Release {
     objects: Objects,
 }
 
-pub type Objects = HashMap<Identifier, DynamicObject>;
-
 impl Release {
     pub fn from_objects(name: String, objects: Objects) -> Self {
         Release { name, objects }
@@ -130,7 +134,7 @@ impl Release {
         &self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&self.name, &self.objects, &HashMap::new());
+        let plan = ReleasePlan::new(&self.name, &self.objects, &Objects::new());
         client = plan.execute(client).await?;
         Ok((client, plan))
     }
@@ -139,7 +143,7 @@ impl Release {
         &self,
         mut client: kube::Client,
     ) -> Result<(kube::Client, ReleasePlan), Error> {
-        let plan = ReleasePlan::new(&self.name, &HashMap::new(), &self.objects);
+        let plan = ReleasePlan::new(&self.name, &Objects::new(), &self.objects);
         client = plan.execute(client).await?;
         Ok((client, plan))
     }

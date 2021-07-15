@@ -1,6 +1,8 @@
 use crate::k8s;
 use crate::k8s::api_resource;
 use crate::k8s::labels;
+use crate::objects::Object;
+use crate::objects::Objects;
 use crate::release;
 use serde_json::value::Value;
 use std::collections::BTreeMap;
@@ -10,7 +12,7 @@ use std::collections::VecDeque;
 pub async fn find_release_objects(
     mut client: kube::Client,
     release_name: String,
-) -> Result<release::Objects, kube::Error> {
+) -> Result<Objects, kube::Error> {
     let all_resources = api_resource::find_api_resources(&client).await?;
     let labels = labels::Labels::from(k8s::ObjectType::Managed)
         .add(k8s::ReleaseName(release_name))
@@ -24,14 +26,15 @@ pub async fn find_release_objects(
 
         all_items.extend(items.into_iter().filter_map(|item| {
             let name = item.metadata.name.clone()?;
-            let identifier = release::Identifier::from_api_resource(name, &resource)?;
-            Some((identifier, item))
+            let identifier = release::Identifier::from_api_resource(name, &resource);
+            let object = Object::try_from_dynamic_object(item)?;
+            Some((identifier, object))
         }));
 
         client = api.into_client();
     }
 
-    Ok(all_items)
+    Ok(Objects::from(all_items))
 }
 
 pub fn check_value(

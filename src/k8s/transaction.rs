@@ -1,5 +1,5 @@
-use crate::k8s::api_resource::TryToApiResource;
 use crate::meta::CRATE_NAME;
+use crate::objects::Object;
 use kube::api;
 use kube::core::DynamicObject;
 use serde::de::DeserializeOwned;
@@ -106,16 +106,10 @@ where
     Ok(patched)
 }
 
-pub async fn apply_dynamic(
-    client: kube::Client,
-    object: &DynamicObject,
-) -> Result<EndResult, Error> {
-    let api_resource = object.try_to_api_resource().ok_or(Error::NeedApiResource {
-        object: object.clone(),
-    })?;
-    let api = kube::Api::default_namespaced_with(client, &api_resource);
+pub async fn apply_object(client: kube::Client, object: &Object) -> Result<EndResult, Error> {
+    let api = kube::Api::default_namespaced_with(client, &object.api_resource);
 
-    let patched = apply(&api, object).await?;
+    let patched = apply(&api, &object.dyn_object).await?;
 
     Ok(EndResult {
         client: api.into_client(),
@@ -146,16 +140,10 @@ where
     Ok(result)
 }
 
-pub async fn create_dynamic(
-    client: kube::Client,
-    object: &DynamicObject,
-) -> Result<EndResult, Error> {
-    let api_resource = object.try_to_api_resource().ok_or(Error::NeedApiResource {
-        object: object.clone(),
-    })?;
-    let api = kube::Api::default_namespaced_with(client, &api_resource);
+pub async fn create_object(client: kube::Client, object: &Object) -> Result<EndResult, Error> {
+    let api = kube::Api::default_namespaced_with(client, &object.api_resource);
 
-    let result = create(&api, object).await?;
+    let result = create(&api, &object.dyn_object).await?;
 
     Ok(EndResult {
         client: api.into_client(),
@@ -185,16 +173,10 @@ where
     Ok(())
 }
 
-pub async fn delete_dynamic(
-    client: kube::Client,
-    object: &DynamicObject,
-) -> Result<kube::Client, Error> {
-    let api_resource = object.try_to_api_resource().ok_or(Error::NeedApiResource {
-        object: object.clone(),
-    })?;
-    let api = kube::Api::default_namespaced_with(client, &api_resource);
+pub async fn delete_object(client: kube::Client, object: &Object) -> Result<kube::Client, Error> {
+    let api = kube::Api::default_namespaced_with(client, &object.api_resource);
 
-    delete(&api, object).await?;
+    delete(&api, &object.dyn_object).await?;
 
     Ok(api.into_client())
 }

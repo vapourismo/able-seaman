@@ -2,6 +2,7 @@ mod identifier;
 mod k8s;
 mod manager;
 mod meta;
+mod objects;
 mod release;
 mod utils;
 

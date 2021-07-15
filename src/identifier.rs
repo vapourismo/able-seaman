@@ -16,22 +16,16 @@ impl Identifier {
     {
         let name = object.meta().name.clone()?;
         let api_resource = object.try_to_api_resource()?;
-        let gvk = kube::core::GroupVersionKind {
-            group: api_resource.group,
-            kind: api_resource.kind,
-            version: api_resource.version,
-        };
-
-        Some(Identifier { gvk, name })
+        Some(Self::from_api_resource(name, &api_resource))
     }
 
-    pub fn from_api_resource(name: String, api_resource: &kube::core::ApiResource) -> Option<Self> {
+    pub fn from_api_resource(name: String, api_resource: &kube::core::ApiResource) -> Self {
         let gvk = kube::core::GroupVersionKind {
             group: api_resource.group.clone(),
             kind: api_resource.kind.clone(),
             version: api_resource.version.clone(),
         };
 
-        Some(Identifier { gvk, name })
+        Identifier { gvk, name }
     }
 }

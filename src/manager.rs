@@ -3,10 +3,12 @@ use crate::k8s;
 use crate::k8s::annotations::WithAnnotations;
 use crate::k8s::labels::WithLabels;
 use crate::k8s::transaction;
+use crate::objects;
 use crate::release;
 use crate::release::plan;
 use crate::release::verify;
 use k8s_openapi::api::core::v1::ConfigMap;
+use kube::Resource;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
@@ -89,7 +91,7 @@ impl Manager {
         let result = match state {
             None => {
                 let state = ReleaseState {
-                    current: ReleaseStateObjects(release.objects().clone()),
+                    current: release.objects().clone(),
                     history: Vec::new(),
                 };
 
@@ -118,7 +120,7 @@ impl Manager {
 
             Some(mut state) => {
                 let old_release =
-                    release::Release::from_objects(name.clone(), state.current.0.clone());
+                    release::Release::from_objects(name.clone(), state.current.clone());
 
                 if old_release.hash_value() == release.hash_value() {
                     return Ok(DeployResult::Unchanged);
@@ -133,7 +135,7 @@ impl Manager {
                     })?;
 
                 state.history.insert(0, state.current);
-                state.current = ReleaseStateObjects(release.objects().clone());
+                state.current = release.objects().clone();
 
                 if let Err(err_cause) = state.apply(&self.config_maps, name.as_str()).await {
                     plan.undo()
@@ -158,7 +160,7 @@ impl Manager {
         let state = ReleaseState::get(&self.config_maps, name.as_str()).await?;
 
         if let Some(state) = state {
-            let release = release::Release::from_objects(name, state.current.0.clone());
+            let release = release::Release::from_objects(name, state.current.clone());
 
             let (client, plan) = release
                 .uninstall(self.client.clone())
@@ -187,32 +189,38 @@ impl Manager {
         let real_objects =
             verify::find_release_objects(self.client.clone(), release_name.clone()).await?;
 
-        for (identifier, desired) in state.current.0 {
+        for (identifier, desired) in state.current {
             let desired = plan::ReleasePlan::tag_object(release_name.clone(), desired);
 
             let reality = real_objects
                 .get(&identifier)
                 .ok_or_else(|| VerificationError::MissingObject(identifier.clone()))?;
 
-            if !verify::check_mapping(&desired.metadata.annotations, &reality.metadata.annotations)
-            {
+            let desired_meta = desired.meta();
+            let reality_meta = reality.meta();
+
+            if !verify::check_mapping(&desired_meta.annotations, &reality_meta.annotations) {
                 return Err(VerificationError::MismatchingAnnotations {
                     identifier: identifier.clone(),
-                    desired: desired.metadata.annotations,
-                    reality: reality.metadata.annotations.clone(),
+                    desired: desired_meta.annotations.clone(),
+                    reality: reality_meta.annotations.clone(),
                 });
             }
 
-            if !verify::check_mapping(&desired.metadata.labels, &reality.metadata.labels) {
+            if !verify::check_mapping(&desired_meta.labels, &reality_meta.labels) {
                 return Err(VerificationError::MismatchingLabels {
                     identifier: identifier.clone(),
-                    desired: desired.metadata.labels,
-                    reality: reality.metadata.labels.clone(),
+                    desired: desired_meta.labels.clone(),
+                    reality: reality_meta.labels.clone(),
                 });
             }
 
-            verify::check_value(&desired.data, &reality.data, VecDeque::new())
-                .map_err(|path| VerificationError::MismatchingData { path })?;
+            verify::check_value(
+                &desired.dyn_object.data,
+                &reality.dyn_object.data,
+                VecDeque::new(),
+            )
+            .map_err(|path| VerificationError::MismatchingData { path })?;
         }
 
         Ok(())
@@ -266,51 +274,10 @@ impl From<serde_json::Error> for ReleaseStateError {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ReleaseStateObjects(release::Objects);
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct ReleaseStateObject {
-    identifier: Identifier,
-    object: kube::core::DynamicObject,
-}
-
-impl serde::Serialize for ReleaseStateObjects {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0
-            .iter()
-            .map(|(identifier, object)| ReleaseStateObject {
-                identifier: identifier.clone(),
-                object: object.clone(),
-            })
-            .collect::<Vec<ReleaseStateObject>>()
-            .serialize(serializer)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ReleaseStateObjects {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let interim: Vec<ReleaseStateObject> = Vec::deserialize(deserializer)?;
-
-        Ok(ReleaseStateObjects(
-            interim
-                .into_iter()
-                .map(|object| (object.identifier, object.object))
-                .collect(),
-        ))
-    }
-}
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ReleaseState {
-    current: ReleaseStateObjects,
-    history: Vec<ReleaseStateObjects>,
+    current: objects::Objects,
+    history: Vec<objects::Objects>,
 }
 
 impl ReleaseState {
