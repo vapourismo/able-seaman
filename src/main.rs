@@ -48,8 +48,8 @@ struct Options {
 
 fn ingest_from_file_args<F: IntoIterator<Item = String>>(
     files: F,
-) -> Result<release::Builder, release::BuildError> {
-    let mut builder = release::Builder::new();
+) -> Result<objects::Objects, objects::BuilderError> {
+    let mut builder = objects::Builder::new();
 
     for ref file in files {
         if file == "-" {
@@ -59,7 +59,7 @@ fn ingest_from_file_args<F: IntoIterator<Item = String>>(
         }
     }
 
-    Ok(builder)
+    Ok(builder.finish())
 }
 
 fn print_pretty_release_plan(plan: &release::plan::ReleasePlan) {
@@ -99,7 +99,8 @@ async fn inner_main() -> Result<(), GeneralError> {
             release_name,
             input_files,
         } => {
-            let release = ingest_from_file_args(input_files)?.finish(release_name);
+            let release =
+                release::Release::from_objects(release_name, ingest_from_file_args(input_files)?);
 
             let ns_mode = manager::NamespaceMode::new(options.namespace);
             let manager = manager::Manager::new(ns_mode).await?;
@@ -156,7 +157,7 @@ pub enum GeneralError {
     YAMLError(serde_yaml::Error),
     JSONError(serde_json::Error),
     ReleaseError(Box<release::Error>),
-    BuildError(release::BuildError),
+    BuildError(objects::BuilderError),
     ManagerError(manager::Error),
     VerificationError(Box<manager::VerificationError>),
 }
@@ -191,8 +192,8 @@ impl From<release::Error> for GeneralError {
     }
 }
 
-impl From<release::BuildError> for GeneralError {
-    fn from(error: release::BuildError) -> GeneralError {
+impl From<objects::BuilderError> for GeneralError {
+    fn from(error: objects::BuilderError) -> GeneralError {
         GeneralError::BuildError(error)
     }
 }

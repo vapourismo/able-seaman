@@ -5,89 +5,12 @@ pub mod verify;
 use crate::identifier::Identifier;
 use crate::k8s::lock::Lock;
 use crate::k8s::transaction;
-use crate::objects::Object;
 use crate::objects::Objects;
 use crate::release::plan::ReleasePlan;
-use crate::utils::fs;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube::core::DynamicObject;
-use serde::Deserialize;
 use std::collections::hash_map;
-use std::convert::TryFrom;
-use std::fs::File;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::io;
-use std::path::Path;
-
-#[derive(Debug)]
-pub enum BuildError {
-    DuplicateObject(Identifier),
-    ObjectWithoutName(Box<Object>),
-    BadDynamicObject(String),
-    IOError(io::Error),
-    YAMLError(serde_yaml::Error),
-}
-
-impl From<serde_yaml::Error> for BuildError {
-    fn from(error: serde_yaml::Error) -> BuildError {
-        BuildError::YAMLError(error)
-    }
-}
-
-impl From<io::Error> for BuildError {
-    fn from(error: io::Error) -> BuildError {
-        BuildError::IOError(error)
-    }
-}
-
-#[derive(Debug)]
-pub struct Builder {
-    objects: Objects,
-}
-
-impl Builder {
-    pub fn new() -> Self {
-        Builder {
-            objects: Objects::new(),
-        }
-    }
-
-    pub fn add_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuildError>
-    where
-        SomeRead: io::Read,
-    {
-        for document in serde_yaml::Deserializer::from_reader(input) {
-            let object = DynamicObject::deserialize(document)?;
-            let object = Object::try_from(object).map_err(BuildError::BadDynamicObject)?;
-
-            let name = object
-                .name()
-                .ok_or_else(|| BuildError::ObjectWithoutName(Box::new(object.clone())))?
-                .clone();
-            let identifier = Identifier::from_api_resource(name, &object.api_resource);
-
-            if self.objects.insert(identifier.clone(), object).is_some() {
-                return Err(BuildError::DuplicateObject(identifier));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn add_objects_from_path(&mut self, input: &Path) -> Result<(), BuildError> {
-        for file in fs::list_files(input)? {
-            let file = File::open(file.as_path())?;
-            self.add_objects(file)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn finish(self, name: String) -> Release {
-        Release::from_objects(name, self.objects)
-    }
-}
 
 #[derive(Debug)]
 pub enum Error {

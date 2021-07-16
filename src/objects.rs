@@ -1,6 +1,7 @@
 use crate::identifier::Identifier;
 use crate::k8s::api_resource::ToApiResource;
 use crate::k8s::api_resource::TryToApiResource;
+use crate::utils::fs::list_files;
 use kube::core::ApiResource;
 use kube::core::DynamicObject;
 use serde::Deserialize;
@@ -11,6 +12,9 @@ use std::borrow::Cow;
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fs::File;
+use std::io;
+use std::path::Path;
 
 /// Clone of ApiResource that supports Serialize and Deserialize
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -130,10 +134,6 @@ impl Objects {
     pub fn get(&self, key: &Identifier) -> Option<&Object> {
         self.inner.get(key)
     }
-
-    pub fn insert(&mut self, key: Identifier, value: Object) -> Option<Object> {
-        self.inner.insert(key, value)
-    }
 }
 
 impl Default for Objects {
@@ -207,5 +207,81 @@ impl<'de> Deserialize<'de> for Objects {
             .collect();
 
         Ok(Objects { inner })
+    }
+}
+
+#[derive(Debug)]
+pub enum BuilderError {
+    DuplicateObject(Identifier),
+    ObjectWithoutName(Box<Object>),
+    BadDynamicObject(String),
+    IOError(io::Error),
+    YAMLError(serde_yaml::Error),
+}
+
+impl From<serde_yaml::Error> for BuilderError {
+    fn from(error: serde_yaml::Error) -> BuilderError {
+        BuilderError::YAMLError(error)
+    }
+}
+
+impl From<io::Error> for BuilderError {
+    fn from(error: io::Error) -> BuilderError {
+        BuilderError::IOError(error)
+    }
+}
+
+#[derive(Debug)]
+pub struct Builder {
+    objects: HashMap<Identifier, Object>,
+}
+
+impl Builder {
+    pub fn new() -> Self {
+        Builder {
+            objects: HashMap::new(),
+        }
+    }
+
+    pub fn add_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuilderError>
+    where
+        SomeRead: io::Read,
+    {
+        for document in serde_yaml::Deserializer::from_reader(input) {
+            let object = DynamicObject::deserialize(document)?;
+            let object = Object::try_from(object).map_err(BuilderError::BadDynamicObject)?;
+
+            let name = object
+                .name()
+                .ok_or_else(|| BuilderError::ObjectWithoutName(Box::new(object.clone())))?
+                .clone();
+
+            let identifier = Identifier::from_api_resource(name, &object.api_resource);
+
+            if self.objects.insert(identifier.clone(), object).is_some() {
+                return Err(BuilderError::DuplicateObject(identifier));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn add_objects_from_path(&mut self, input: &Path) -> Result<(), BuilderError> {
+        for file in list_files(input)? {
+            let file = File::open(file.as_path())?;
+            self.add_objects(file)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn finish(self) -> Objects {
+        Objects::from(self.objects)
+    }
+}
+
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
     }
 }
