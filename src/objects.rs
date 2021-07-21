@@ -111,26 +111,31 @@ impl<'de> Deserialize<'de> for Object {
     }
 }
 
+/// Deployable collection of objects
 #[derive(Debug, Clone)]
 pub struct Objects {
     inner: HashMap<Identifier, Object>,
 }
 
 impl Objects {
+    /// Construct an empty collection of objects.
     pub fn empty() -> Self {
         Objects {
             inner: HashMap::new(),
         }
     }
 
+    /// Is there an object associated with the given identifier?
     pub fn contains(&self, ident: &Identifier) -> bool {
         self.inner.contains_key(ident)
     }
 
+    /// Provide a borrowing iterator.
     pub fn iter(&self) -> hash_map::Iter<'_, Identifier, Object> {
         self.inner.iter()
     }
 
+    /// Find an object associated with the given identifier.
     pub fn get(&self, key: &Identifier) -> Option<&Object> {
         self.inner.get(key)
     }
@@ -174,6 +179,7 @@ impl From<Objects> for HashMap<Identifier, Object> {
     }
 }
 
+/// Helper type for Serialize and Deserialize for Objects
 #[derive(Serialize, Deserialize)]
 struct SerDeObjectsEntry {
     identifier: Identifier,
@@ -210,71 +216,103 @@ impl<'de> Deserialize<'de> for Objects {
     }
 }
 
+/// An error that may occur while building a collection of deployable objects
 #[derive(Debug)]
 pub enum BuilderError {
-    DuplicateObject(Identifier),
-    ObjectWithoutName(Box<Object>),
-    BadDynamicObject(String),
-    IOError(io::Error),
-    YAMLError(serde_yaml::Error),
+    /// Encountered at least 2 objects which shared the same identifier (e.g. name and kind)
+    DuplicateObject { identifier: Identifier },
+
+    /// One object did not have a name in the metadata section
+    ObjectWithoutName { object: Box<Object> },
+
+    /// Encountered a bad object
+    BadDynamicObject { error: String },
+
+    /// Failed to list the contents of a directory
+    ListFilesError { path: Box<Path>, error: io::Error },
+
+    /// File could not be opened for reading
+    OpenFileError { path: Box<Path>, error: io::Error },
+
+    /// Object made of faulty YAML
+    DeserializeError { error: serde_yaml::Error },
 }
 
 impl From<serde_yaml::Error> for BuilderError {
     fn from(error: serde_yaml::Error) -> BuilderError {
-        BuilderError::YAMLError(error)
+        BuilderError::DeserializeError { error }
     }
 }
 
-impl From<io::Error> for BuilderError {
-    fn from(error: io::Error) -> BuilderError {
-        BuilderError::IOError(error)
-    }
-}
-
+/// Builder for Objects
 #[derive(Debug)]
 pub struct Builder {
     objects: HashMap<Identifier, Object>,
 }
 
 impl Builder {
+    /// Create a new empty builder.
     pub fn new() -> Self {
         Builder {
             objects: HashMap::new(),
         }
     }
 
-    pub fn add_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuilderError>
+    /// Add a DynamicObject.
+    pub fn add_dynamic_object(&mut self, dyn_object: DynamicObject) -> Result<(), BuilderError> {
+        let object = Object::try_from(dyn_object)
+            .map_err(|error| BuilderError::BadDynamicObject { error })?;
+
+        let name = object
+            .name()
+            .ok_or_else(|| BuilderError::ObjectWithoutName {
+                object: Box::new(object.clone()),
+            })?
+            .clone();
+
+        let identifier = Identifier::from_api_resource(name, &object.api_resource);
+
+        if self.objects.insert(identifier.clone(), object).is_some() {
+            return Err(BuilderError::DuplicateObject { identifier });
+        }
+
+        Ok(())
+    }
+
+    /// Read objects from a YAML document.
+    pub fn read_objects<SomeRead>(&mut self, input: SomeRead) -> Result<(), BuilderError>
     where
         SomeRead: io::Read,
     {
         for document in serde_yaml::Deserializer::from_reader(input) {
             let object = DynamicObject::deserialize(document)?;
-            let object = Object::try_from(object).map_err(BuilderError::BadDynamicObject)?;
-
-            let name = object
-                .name()
-                .ok_or_else(|| BuilderError::ObjectWithoutName(Box::new(object.clone())))?
-                .clone();
-
-            let identifier = Identifier::from_api_resource(name, &object.api_resource);
-
-            if self.objects.insert(identifier.clone(), object).is_some() {
-                return Err(BuilderError::DuplicateObject(identifier));
-            }
+            self.add_dynamic_object(object)?;
         }
 
         Ok(())
     }
 
-    pub fn add_objects_from_path(&mut self, input: &Path) -> Result<(), BuilderError> {
-        for file in list_files(input)? {
-            let file = File::open(file.as_path())?;
-            self.add_objects(file)?;
+    /// Read objects from a file or files. If the given path is a directory, it will be traversed
+    /// and all files, including in any subdirectories will be read.
+    pub fn read_objects_from_path(&mut self, input: &Path) -> Result<(), BuilderError> {
+        let files = list_files(input).map_err(|error| BuilderError::ListFilesError {
+            path: input.to_owned().into_boxed_path(),
+            error,
+        })?;
+
+        for file in files {
+            let file = File::open(file.as_path()).map_err(|error| BuilderError::OpenFileError {
+                path: file.into_boxed_path(),
+                error,
+            })?;
+
+            self.read_objects(file)?;
         }
 
         Ok(())
     }
 
+    /// Finalize the building process.
     pub fn finish(self) -> Objects {
         Objects::from(self.objects)
     }

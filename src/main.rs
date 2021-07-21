@@ -53,9 +53,9 @@ fn ingest_from_file_args<F: IntoIterator<Item = String>>(
 
     for ref file in files {
         if file == "-" {
-            builder.add_objects(io::stdin())?;
+            builder.read_objects(io::stdin())?;
         } else {
-            builder.add_objects_from_path(Path::new(file))?;
+            builder.read_objects_from_path(Path::new(file))?;
         }
     }
 
