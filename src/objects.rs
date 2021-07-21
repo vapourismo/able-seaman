@@ -117,7 +117,7 @@ pub struct Objects {
 }
 
 impl Objects {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Objects {
             inner: HashMap::new(),
         }
@@ -138,7 +138,7 @@ impl Objects {
 
 impl Default for Objects {
     fn default() -> Self {
-        Self::new()
+        Self::empty()
     }
 }
 
