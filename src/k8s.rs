@@ -5,11 +5,10 @@ pub mod lock;
 pub mod transaction;
 
 use crate::meta;
-use const_format::concatcp;
 use serde::Serialize;
 use std::fmt;
 
-const VERSION_KEY: &str = concatcp!(meta::CRATE_NAME, "/version");
+const VERSION_KEY: &str = const_format::concatcp!(meta::CRATE_NAME, "/version");
 
 #[derive(Clone, Copy, Debug)]
 pub struct CrateVersion;
@@ -20,7 +19,7 @@ impl annotations::ToAnnotation for CrateVersion {
     }
 }
 
-const TYPE_KEY: &str = concatcp!(meta::CRATE_NAME, "/type");
+const TYPE_KEY: &str = const_format::concatcp!(meta::CRATE_NAME, "/type");
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum ObjectType {
@@ -45,7 +44,7 @@ impl labels::ToLabel for ObjectType {
     }
 }
 
-const RELEASE_KEY: &str = concatcp!(meta::CRATE_NAME, "/release");
+const RELEASE_KEY: &str = const_format::concatcp!(meta::CRATE_NAME, "/release");
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ReleaseName(pub String);
