@@ -16,10 +16,11 @@ use std::str;
 
 #[derive(Debug)]
 pub enum Error {
-    KubeError(kube::Error),
-    ReleaseStateError(Box<ReleaseStateError>),
+    Kube(kube::Error),
 
-    ReleaseError {
+    ReleaseState(Box<ReleaseStateError>),
+
+    Release {
         state: ReleaseState,
         error: Box<release::Error>,
     },
@@ -27,13 +28,13 @@ pub enum Error {
 
 impl From<kube::Error> for Error {
     fn from(error: kube::Error) -> Self {
-        Error::KubeError(error)
+        Error::Kube(error)
     }
 }
 
 impl From<ReleaseStateError> for Error {
     fn from(error: ReleaseStateError) -> Self {
-        Error::ReleaseStateError(Box::new(error))
+        Error::ReleaseState(Box::new(error))
     }
 }
 
@@ -99,7 +100,7 @@ impl Manager {
                     release
                         .install(self.client.clone())
                         .await
-                        .map_err(|error| Error::ReleaseError {
+                        .map_err(|error| Error::Release {
                             error: Box::new(error),
                             state: state.clone(),
                         })?;
@@ -108,7 +109,7 @@ impl Manager {
                     plan.undo()
                         .execute(self.client.clone())
                         .await
-                        .map_err(|error| Error::ReleaseError {
+                        .map_err(|error| Error::Release {
                             error: Box::new(error),
                             state: state.clone(),
                         })?;
@@ -129,7 +130,7 @@ impl Manager {
                 let (_client, plan) = release
                     .upgrade(&old_release, self.client.clone())
                     .await
-                    .map_err(|error| Error::ReleaseError {
+                    .map_err(|error| Error::Release {
                         error: Box::new(error),
                         state: state.clone(),
                     })?;
@@ -141,7 +142,7 @@ impl Manager {
                     plan.undo()
                         .execute(self.client.clone())
                         .await
-                        .map_err(|error| Error::ReleaseError {
+                        .map_err(|error| Error::Release {
                             error: Box::new(error),
                             state: state.clone(),
                         })?;
@@ -165,7 +166,7 @@ impl Manager {
             let (client, plan) = release
                 .uninstall(self.client.clone())
                 .await
-                .map_err(|error| Error::ReleaseError {
+                .map_err(|error| Error::Release {
                     error: Box::new(error),
                     state,
                 })?;
@@ -321,7 +322,7 @@ impl ReleaseState {
         let mut config_map = self.to_config_map()?;
         config_map.metadata.name = Some(name.to_string());
 
-        transaction::apply(&api, &config_map)
+        transaction::apply(api, &config_map)
             .await
             .map_err(ReleaseStateError::UpdateError)?;
 

@@ -71,7 +71,7 @@ where
                 Err(kube::Error::Api(kube::error::ErrorResponse {
                     reason, code: 409, ..
                 })) if reason == "AlreadyExists" => {
-                    wait_for_deletion(&api, &name).await?;
+                    wait_for_deletion(api, &name).await?;
                 }
 
                 result => {

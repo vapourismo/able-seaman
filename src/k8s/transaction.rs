@@ -35,7 +35,7 @@ pub enum Error {
         object_rep: String,
     },
 
-    KubeError {
+    Kube {
         kube_error: kube::Error,
         action: Action,
         object_name: String,
@@ -57,7 +57,7 @@ impl fmt::Display for Error {
                 write!(formatter, "Resource needs a name: {}", object_rep)
             }
 
-            Error::KubeError {
+            Error::Kube {
                 kube_error,
                 action,
                 object_name,
@@ -73,7 +73,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            Error::KubeError { kube_error, .. } => Some(kube_error),
+            Error::Kube { kube_error, .. } => Some(kube_error),
             _ => None,
         }
     }
@@ -97,7 +97,7 @@ where
             &api::Patch::Apply(object.clone()),
         )
         .await
-        .map_err(|kube_error| Error::KubeError {
+        .map_err(|kube_error| Error::Kube {
             kube_error,
             action: Action::Apply,
             object_name: name.clone(),
@@ -131,7 +131,7 @@ where
     let result = api
         .create(&api::PostParams::default(), object)
         .await
-        .map_err(|kube_error| Error::KubeError {
+        .map_err(|kube_error| Error::Kube {
             kube_error,
             action: Action::Create,
             object_name: name.clone(),
@@ -164,7 +164,7 @@ where
 
     api.delete(name, &api::DeleteParams::default())
         .await
-        .map_err(|kube_error| Error::KubeError {
+        .map_err(|kube_error| Error::Kube {
             kube_error,
             action: Action::Delete,
             object_name: name.clone(),
